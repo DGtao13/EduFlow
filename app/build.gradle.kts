@@ -1,9 +1,54 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.kapt")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+val productionSigningEnvironment = listOf(
+    "EDUFLOW_KEYSTORE_PATH",
+    "EDUFLOW_KEYSTORE_PASSWORD",
+    "EDUFLOW_KEY_ALIAS",
+    "EDUFLOW_KEY_PASSWORD"
+).associateWith { System.getenv(it).orEmpty() }
+val missingProductionSigningEnvironment = productionSigningEnvironment
+    .filterValues { it.isBlank() }
+    .keys
+val productionSigningConfigured = missingProductionSigningEnvironment.isEmpty()
+val productionArtifactRequested = gradle.startParameter.taskNames.any { taskName ->
+    when (taskName.substringAfterLast(':').lowercase()) {
+        "assemblerelease", "bundlerelease", "packagerelease" -> true
+        else -> false
+    }
+}
+val productionKeystoreFile = productionSigningEnvironment["EDUFLOW_KEYSTORE_PATH"]
+    ?.takeIf { it.isNotBlank() }
+    ?.let { File(it) }
+
+if (productionArtifactRequested) {
+    if (!productionSigningConfigured) {
+        throw GradleException(
+            buildString {
+                appendLine("Production signing is not configured.")
+                appendLine("Missing environment variables:")
+                missingProductionSigningEnvironment.forEach(::appendLine)
+            }
+        )
+    }
+    requireNotNull(productionKeystoreFile).let { keystore ->
+        require(keystore.isAbsolute) {
+            "EDUFLOW_KEYSTORE_PATH must be an absolute path outside the repository."
+        }
+        require(!keystore.toPath().normalize().startsWith(projectDir.toPath().normalize())) {
+            "EDUFLOW_KEYSTORE_PATH must point outside the repository."
+        }
+        require(keystore.isFile && keystore.canRead()) {
+            "The production keystore path is not a readable file: ${keystore.absolutePath}"
+        }
+    }
 }
 
 android {
@@ -20,11 +65,20 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (productionSigningConfigured) {
+                signingConfig = signingConfigs.create("production") {
+                    storeFile = productionKeystoreFile
+                    storePassword = productionSigningEnvironment["EDUFLOW_KEYSTORE_PASSWORD"]
+                    keyAlias = productionSigningEnvironment["EDUFLOW_KEY_ALIAS"]
+                    keyPassword = productionSigningEnvironment["EDUFLOW_KEY_PASSWORD"]
+                }
+            }
         }
         create("qaRelease") {
             initWith(getByName("release"))
