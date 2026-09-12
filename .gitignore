@@ -1,0 +1,28 @@
+.gradle/
+build/
+*/build/
+local.properties
+
+# Machine-local Kotlin/Android Studio state
+.kotlin/
+.idea/caches/
+.idea/deviceManager.xml
+.idea/deploymentTargetSelector.xml
+
+# Generated packages and signing material
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+keystore.properties
+signing.properties
+*signing*.properties
+
+# Local environment/secrets and transient files
+.env
+.env.*
+*.log
+*.tmp

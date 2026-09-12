@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.EduFlow" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/eduflow_splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/eduflow_splash_background</item>
+    </style>
+</resources>

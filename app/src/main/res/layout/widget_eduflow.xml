@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp" android:background="#FFFFFFFF">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <TextView android:id="@+id/widget_header" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/widget_title" android:textStyle="bold" android:textSize="16sp" />
+        <TextView android:id="@+id/widget_add" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+" android:textSize="22sp" />
+    </LinearLayout>
+    <TextView android:id="@+id/widget_task_one" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="6dp" android:maxLines="1" />
+    <TextView android:id="@+id/widget_task_two" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="4dp" android:maxLines="1" />
+    <TextView android:id="@+id/widget_task_three" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="4dp" android:maxLines="1" />
+</LinearLayout>
