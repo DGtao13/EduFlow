@@ -33,6 +33,16 @@ object TaskLogic {
 }
 
 object NextLessonResolver {
+    fun chooseUpcomingSchoolSession(subjectId: Long, lessons: List<LessonInstance>, slots: List<ScheduleSlot>, after: LocalDateTime,
+        noSchoolDates: Set<LocalDate>, year: AcademicYearSettings): LessonInstance? = lessons.filter { it.kind == LessonKind.SCHOOL }
+        .groupBy { it.actualDate }.values.flatMap { LessonBlockResolver.resolveAll(it, slots).values }
+        .distinctBy { it.ids.first() }
+        .filter { block -> block.lessons.any { it.subjectId == subjectId } &&
+            LocalDateTime.of(block.lessons.first().actualDate, block.startTime).isAfter(after) &&
+            block.lessons.first().actualDate !in noSchoolDates && SchoolYear.containsSchoolDate(block.lessons.first().actualDate, year) }
+        .sortedWith(compareBy<LessonBlock> { it.lessons.first().actualDate }.thenBy { it.startTime })
+        .firstNotNullOfOrNull(::canonicalActiveAnchor)
+
     fun candidatesForOrigin(origin: LessonInstance?, lessons: List<LessonInstance>): List<LessonInstance> = when {
         origin?.kind == LessonKind.PRIVATE && origin.sourcePrivateLessonId != null -> lessons.filter { it.sourcePrivateLessonId == origin.sourcePrivateLessonId }
         origin?.kind == LessonKind.PRIVATE -> emptyList()
@@ -62,7 +72,7 @@ object NextLessonResolver {
         return blocksByLessonId.values
             .distinctBy { block -> block.lessons.first().id }
             .asSequence()
-            .filter { block -> block.lessons.first().subjectId == subjectId }
+            .filter { block -> block.lessons.any { it.subjectId == subjectId } }
             .filter { block -> block.ids.none(excludedOriginIds::contains) }
             .filter { block -> isAtOrAfterBlockEnd(block, originBlock) }
             .filter { block ->
@@ -116,7 +126,15 @@ class TaskRepository(private val database: EduFlowDatabase) {
         val exceptions = database.dayExceptionDao().getForDateRange(after.toLocalDate(), until)
             .filter { it.type == DayExceptionType.NO_SCHOOL }.map { it.date }.toSet()
         val lessons = database.lessonInstanceDao().getForSubjectInRange(subjectId, after.toLocalDate(), until)
+        if (origin == null) {
+            val allLessons = database.lessonInstanceDao().getForDateRange(after.toLocalDate(), until)
+            return NextLessonResolver.chooseUpcomingSchoolSession(subjectId, allLessons, database.scheduleSlotDao().getAll(), after, exceptions, academicYear)
+        }
         return NextLessonResolver.choose(NextLessonResolver.candidatesForOrigin(origin, lessons), after, exceptions, academicYear = academicYear)
+    }
+
+    suspend fun resolveFutureSession(subjectId: Long, after: LocalDateTime, origin: LessonInstance?, ordinal: Int): LessonInstance? {
+        return HomeworkDuePresets.resolve(subjectId, after, origin, ordinal) { subject, time, source -> resolveNextLesson(subject, time, source) }
     }
 
     /** Materializes one future week at a time and stops as soon as a valid SCHOOL block is found. */
@@ -143,9 +161,16 @@ class TaskRepository(private val database: EduFlowDatabase) {
 
     suspend fun saveWithChecklist(task: Task, checklist: List<TaskChecklistItem>, reminders: List<TaskReminder> = emptyList()): Long = database.withTransaction {
         val taskId = database.taskDao().upsert(task)
+        val incomingIds = checklist.mapNotNull { it.id.takeIf { id -> id != 0L } }.toSet()
+        database.taskChecklistDao().getForTask(taskId)
+            .filter { it.id !in incomingIds }
+            .forEach { database.taskChecklistDao().delete(it) }
         checklist.forEachIndexed { index, item ->
             database.taskChecklistDao().upsert(item.copy(taskId = taskId, position = index))
         }
+        val reminderIds = reminders.map { it.id }.toSet()
+        database.taskReminderDao().getForTask(taskId).filter { it.id !in reminderIds }
+            .forEach { database.taskReminderDao().delete(it) }
         reminders.forEach { reminder -> database.taskReminderDao().upsert(reminder.copy(taskId = taskId)) }
         taskId
     }

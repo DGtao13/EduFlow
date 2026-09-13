@@ -31,12 +31,18 @@ import androidx.compose.ui.unit.dp
 import com.eduflow.app.R
 import com.eduflow.app.data.local.Subject
 import androidx.compose.ui.res.stringResource
+import com.eduflow.app.ui.theme.EduFlowColorRole
+import com.eduflow.app.ui.theme.eduFlowColor
 
 @Composable
 fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 16.dp)) {
-        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) { content() }
+        Text(title, style = MaterialTheme.typography.labelLarge, color = eduFlowColor(EduFlowColorRole.NEUTRAL))
+        // Surface lays out multiple direct children on top of one another. A dedicated
+        // Column gives every settings row its own measured height.
+        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Column { content() }
+        }
     }
 }
 
@@ -47,20 +53,38 @@ fun SettingsRow(
     icon: ImageVector? = null,
     trailing: String? = null,
     action: @Composable (() -> Unit)? = null,
-    onClick: (() -> Unit)? = null
+    destructive: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    accent: EduFlowColorRole = EduFlowColorRole.NEUTRAL
 ) {
+    val contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        icon?.let { Icon(it, null, modifier = Modifier.padding(end = 14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        icon?.let { Icon(it, null, modifier = Modifier.padding(end = 14.dp), tint = if (destructive) MaterialTheme.colorScheme.error else eduFlowColor(accent)) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            supporting?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text(title, style = MaterialTheme.typography.titleSmall, color = contentColor, maxLines = 2)
+            supporting?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
         }
         trailing?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (action != null) action.invoke() else if (onClick != null) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+@Composable
+fun DestructiveConfirmationButton(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+            contentColor = MaterialTheme.colorScheme.error
+        )
+    ) { Text(label) }
 }
 
 @Composable
@@ -72,7 +96,7 @@ fun SelectorField(label: String, value: String, supporting: String? = null, onCl
     ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(value, style = MaterialTheme.typography.bodyLarge)
                 supporting?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }

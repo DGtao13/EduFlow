@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an improvement for EduFlow.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem or use case would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Suggested behavior
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Why would this be useful?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context (optional)

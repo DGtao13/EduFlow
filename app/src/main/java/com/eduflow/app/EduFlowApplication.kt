@@ -19,8 +19,13 @@ class EduFlowApplication : Application() {
         super.onCreate()
         appContext = applicationContext
         EduFlowNotifications.createChannels(this)
+        LauncherShortcuts.publish(this)
         val database = EduFlowDatabase.getInstance(this)
-        applicationScope.launch { AppDataSession.runtimeMutex.withLock { TaskReminderScheduler(this@EduFlowApplication, database).syncAllPending() } }
+        applicationScope.launch { AppDataSession.runtimeMutex.withLock {
+            com.eduflow.app.data.local.SchoolLessonSourceRepair.repair(database)
+            TaskReminderScheduler(this@EduFlowApplication, database).syncAllPending()
+        } }
+        applicationScope.launch { com.eduflow.app.notifications.NotificationReconciliation(this@EduFlowApplication, database).observeChanges() }
     }
 
     override fun onTerminate() {

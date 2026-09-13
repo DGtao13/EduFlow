@@ -21,10 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.navigation.compose.NavHost
@@ -46,6 +44,9 @@ import com.eduflow.app.ui.screens.NotificationSettingsScreen
 import com.eduflow.app.ui.screens.BackupScreen
 import com.eduflow.app.ui.screens.AboutScreen
 import com.eduflow.app.ui.screens.AcademicYearScreen
+import com.eduflow.app.ui.screens.QuickAddEventScreen
+import com.eduflow.app.ui.screens.SetupGuideScreen
+import com.eduflow.app.data.OnboardingRepository
 import com.eduflow.app.data.local.EduFlowDatabase
 import com.eduflow.app.R
 import androidx.compose.ui.res.stringResource
@@ -72,6 +73,11 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
     val navController = rememberNavController()
     val context = LocalContext.current
     val database = remember(context) { EduFlowDatabase.getInstance(context) }
+    var autoOnboarding by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(context, database) {
+        autoOnboarding = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { OnboardingRepository(context).shouldAutoShow(database) }
+    }
+    if (autoOnboarding == null && externalRoute == null) return
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val rootRoutes = remember { TopLevelDestination.entries.map { it.route }.toSet() }
@@ -84,6 +90,7 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
     }
     LaunchedEffect(externalRoute?.id) { externalRoute?.let { event -> onExternalRouteConsumed(event.id); navController.navigate(event.route) { launchSingleTop = true } } }
 
+    EditorBackBoundary {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
@@ -117,14 +124,18 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
     ) { contentPadding ->
         NavHost(
             navController = navController,
-            startDestination = TopLevelDestination.SCHEDULE.route,
+            startDestination = if (autoOnboarding == true && externalRoute == null) "onboarding" else TopLevelDestination.SCHEDULE.route,
             modifier = androidx.compose.ui.Modifier.padding(contentPadding),
-            enterTransition = { fadeIn(animationSpec = tween(150)) },
-            exitTransition = { fadeOut(animationSpec = tween(120)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(150)) },
-            popExitTransition = { fadeOut(animationSpec = tween(120)) }
+            enterTransition = { androidx.compose.animation.EnterTransition.None },
+            exitTransition = { androidx.compose.animation.ExitTransition.None },
+            popEnterTransition = { androidx.compose.animation.EnterTransition.None },
+            popExitTransition = { androidx.compose.animation.ExitTransition.None }
         ) {
             composable(TopLevelDestination.SCHEDULE.route) { ScheduleScreen(database, navController) }
+            composable("schedule/today") { ScheduleScreen(database, navController, launchToday = true) }
+            composable("event/new") { QuickAddEventScreen(database, navController) }
+            composable("onboarding") { SetupGuideScreen(navController, firstUse = true) }
+            composable("setup_guide") { SetupGuideScreen(navController, firstUse = false) }
             composable(TopLevelDestination.TASKS.route) { TasksScreen(database, navController) }
             composable(TopLevelDestination.SUBJECTS.route) { SubjectsManagementScreen(database, navController) }
             composable(TopLevelDestination.MORE.route) { MoreScreen(navController) }
@@ -140,6 +151,8 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
             composable("academic_year") { AcademicYearScreen(navController) }
             composable("private/new") { PrivateLessonEditorScreen(database, null, false, navController) }
             composable("private/oneoff") { PrivateLessonEditorScreen(database, null, true, navController) }
+            composable("private/oneoff/edit/{lessonId}") { entry -> entry.arguments?.getString("lessonId")?.toLongOrNull()?.let { PrivateLessonEditorScreen(database, it, true, navController) } }
+            composable("private/oneoff/similar/{lessonId}") { entry -> entry.arguments?.getString("lessonId")?.toLongOrNull()?.let { PrivateLessonEditorScreen(database, it, true, navController, similarFromId = it) } }
             composable("private/{privateId}") { entry -> entry.arguments?.getString("privateId")?.toLongOrNull()?.let { PrivateLessonEditorScreen(database, it, false, navController) } }
             composable("subject/{subjectId}") { entry -> entry.arguments?.getString("subjectId")?.toLongOrNull()?.let { SubjectDetailsScreen(database, it, navController) } }
             composable("task/{taskId}/{originId}") { entry ->
@@ -150,5 +163,6 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
                 TaskEditorScreen(database, taskId, originId, navController, subjectId)
             }
         }
+    }
     }
 }

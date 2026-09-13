@@ -2,6 +2,8 @@
 
 package com.eduflow.app.ui.screens
 
+import com.eduflow.app.ui.EditorBackHandler
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -12,9 +14,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,21 +26,27 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -53,13 +63,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.eduflow.app.R
+import com.eduflow.app.data.local.LessonInstance
 import com.eduflow.app.data.TaskLogic
 import com.eduflow.app.data.ReminderLogic
+import com.eduflow.app.ui.TaskDraft
+import com.eduflow.app.ui.TaskDueMode as DeadlineMode
+import com.eduflow.app.ui.concreteDueSelection
+import com.eduflow.app.ui.taskReminderSummary
+import com.eduflow.app.ui.personalReminderMarker
+import com.eduflow.app.ui.isModeMarker
 import com.eduflow.app.domain.TaskDuePresentation
 import com.eduflow.app.data.local.CancellationState
 import com.eduflow.app.data.local.EduFlowDatabase
@@ -91,7 +109,6 @@ import java.time.format.DateTimeFormatter
 import java.time.Instant
 import java.time.ZoneOffset
 
-private enum class DeadlineMode { NONE, EXACT, NEXT }
 private enum class TaskEditorSheet { SUBJECT, TYPE, PRIORITY, DEADLINE, REMINDERS }
 private val taskTimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -108,33 +125,72 @@ fun LessonDetailsScreen(database: EduFlowDatabase, lessonId: Long, navController
     var notes by remember(item.id, item.notes) { mutableStateOf(item.notes.orEmpty()) }
     val subject = subjects.firstOrNull { it.id == item.subjectId }
     var confirmBlockCancellation by remember(item.id) { mutableStateOf(false) }
+    var showPrivateActions by remember(item.id) { mutableStateOf(false) }
+    var confirmPrivateDelete by remember(item.id) { mutableStateOf(false) }
+    var showSchoolActions by remember(item.id) { mutableStateOf(false) }
+    var confirmDiscardChanges by remember(item.id) { mutableStateOf(false) }
     val sectionAnchor = remember(item.id, focus) { BringIntoViewRequester() }
     var sectionPlaced by remember(item.id, focus) { mutableStateOf(false) }
     LaunchedEffect(sectionPlaced, focus) {
         if (sectionPlaced && focus in listOf("assigned", "due")) sectionAnchor.bringIntoView()
     }
-    Scaffold(topBar = { EduFlowChildTopAppBar(title = stringResource(R.string.lesson_details), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }, actions = { TextButton(onClick = { vm.toggleCancellation(item) }) { Text(stringResource(if (item.cancellationState == CancellationState.CANCELLED) R.string.restore else R.string.cancel_lesson)) } }) }) { padding ->
+    val dirty = topic.trim().ifBlank { null } != item.topic || notes.trim().ifBlank { null } != item.notes
+    val latestDirty = rememberUpdatedState(dirty)
+    fun leaveOrConfirm() {
+        if (latestDirty.value) confirmDiscardChanges = true else navController.popBackStack()
+    }
+    EditorBackHandler(::leaveOrConfirm)
+    Scaffold(topBar = { EduFlowChildTopAppBar(title = stringResource(R.string.lesson_details), navigationIcon = { IconButton(onClick = ::leaveOrConfirm) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }, actions = {
+        if (item.kind == LessonKind.PRIVATE) {
+            IconButton(onClick = { showPrivateActions = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.private_lesson_actions)) }
+        } else {
+            androidx.compose.foundation.layout.Box {
+                IconButton(onClick = { showSchoolActions = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.lesson_actions)) }
+                DropdownMenu(expanded = showSchoolActions, onDismissRequest = { showSchoolActions = false }) {
+                    val restoring = item.cancellationState == CancellationState.CANCELLED
+                    DropdownMenuItem(
+                        text = { Text(stringResource(if (restoring) R.string.restore_lesson else R.string.cancel_lesson), color = if (restoring) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(if (restoring) Icons.Default.CheckCircle else Icons.Default.Delete, null, tint = if (restoring) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) },
+                        onClick = { showSchoolActions = false; vm.toggleCancellation(item) }
+                    )
+                    if (block?.isMultiPeriod == true) {
+                        val blockRestoring = block?.lessons?.all { it.cancellationState == CancellationState.CANCELLED } == true
+                        DropdownMenuItem(
+                            text = { Text(stringResource(if (blockRestoring) R.string.restore_whole_block else R.string.cancel_whole_block), color = if (blockRestoring) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
+                            leadingIcon = { Icon(if (blockRestoring) Icons.Default.CheckCircle else Icons.Default.Delete, null, tint = if (blockRestoring) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) },
+                            onClick = { showSchoolActions = false; if (blockRestoring) vm.setBlockCancellation(item, CancellationState.ACTIVE) else confirmBlockCancellation = true }
+                        )
+                    }
+                }
+            }
+        }
+    }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(item.displayTitle(subject, stringResource(R.string.private_lesson), stringResource(R.string.lesson)), style = MaterialTheme.typography.headlineSmall)
-            if (item.kind == LessonKind.PRIVATE) Text(stringResource(R.string.private_lesson), color = MaterialTheme.colorScheme.primary)
-            Text("${formatBulgarianDate(item.actualDate)} · ${item.actualStartTime}–${item.actualEndTime}")
-            item.displayLocation()?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            item.displayTutor()?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (item.cancellationState == CancellationState.CANCELLED) Text(stringResource(R.string.cancelled), color = MaterialTheme.colorScheme.error)
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .42f)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(item.displayTitle(subject, stringResource(R.string.private_lesson), stringResource(R.string.lesson)), style = MaterialTheme.typography.headlineSmall)
+                    if (item.kind == LessonKind.PRIVATE) Text(stringResource(R.string.private_lesson), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    Text("${formatBulgarianDate(item.actualDate)} · ${item.actualStartTime}–${item.actualEndTime}", style = MaterialTheme.typography.bodyLarge)
+                    item.displayLocation()?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    item.displayTutor()?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (item.cancellationState == CancellationState.CANCELLED) Text(stringResource(R.string.cancelled), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)
+                }
+            }
             block?.takeIf { it.isMultiPeriod }?.let { resolved ->
                 Text(stringResource(R.string.lesson_block_hint, resolved.startTime.toString(), resolved.endTime.toString(), resolved.lessons.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { if (item.cancellationState == CancellationState.CANCELLED) vm.setBlockCancellation(item, CancellationState.ACTIVE) else confirmBlockCancellation = true }) {
-                    Text(stringResource(if (item.cancellationState == CancellationState.CANCELLED) R.string.restore_whole_block else R.string.cancel_whole_block))
-                }
             }
             SectionTitle(stringResource(R.string.what_we_did))
             OutlinedTextField(topic, { topic = it }, modifier = Modifier.fillMaxWidth(), minLines = 2)
             SectionTitle(stringResource(R.string.notes))
             OutlinedTextField(notes, { notes = it }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-            Button(onClick = { vm.saveLesson(item.copy(topic = topic.trim().ifBlank { null }, notes = notes.trim().ifBlank { null })) }) { Text(stringResource(R.string.save_lesson)) }
-            Row(Modifier.fillMaxWidth().then(if (focus == "assigned") Modifier.bringIntoViewRequester(sectionAnchor).onGloballyPositioned { sectionPlaced = true } else Modifier), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { vm.saveLesson(item.copy(topic = topic.trim().ifBlank { null }, notes = notes.trim().ifBlank { null })) }, enabled = dirty) { Text(stringResource(R.string.save_lesson)) }
+            Column(Modifier.fillMaxWidth().then(if (focus == "assigned") Modifier.bringIntoViewRequester(sectionAnchor).onGloballyPositioned { sectionPlaced = true } else Modifier)) {
                 SectionTitle(stringResource(R.string.assigned_from_lesson))
-                TextButton(onClick = { navController.navigate("task/new/$lessonId") }) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.add_task)) }
+                TextButton(
+                    onClick = { navController.navigate("task/new/$lessonId") },
+                    modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) { Icon(Icons.Default.Add, contentDescription = null); Text(stringResource(R.string.add_task), Modifier.padding(start = 4.dp), maxLines = 1) }
             }
             LessonTaskList(originTasks, subjects.associateBy { it.id }, vm::toggleTask) { navController.navigate("task/${it}/none") }
             Column(Modifier.then(if (focus == "due") Modifier.bringIntoViewRequester(sectionAnchor).onGloballyPositioned { sectionPlaced = true } else Modifier)) { SectionTitle(stringResource(R.string.due_for_lesson)) }
@@ -145,9 +201,78 @@ fun LessonDetailsScreen(database: EduFlowDatabase, lessonId: Long, navController
         onDismissRequest = { confirmBlockCancellation = false },
         title = { Text(stringResource(R.string.cancel_whole_block)) },
         text = { Text(stringResource(R.string.cancel_whole_block_question, item.displayTitle(subject, stringResource(R.string.private_lesson), stringResource(R.string.lesson)), block?.startTime.toString(), block?.endTime.toString())) },
-        confirmButton = { TextButton(onClick = { vm.setBlockCancellation(item, CancellationState.CANCELLED); confirmBlockCancellation = false }) { Text(stringResource(R.string.cancel_whole_block)) } },
+        confirmButton = { DestructiveConfirmationButton(stringResource(R.string.cancel_whole_block), onClick = { vm.setBlockCancellation(item, CancellationState.CANCELLED); confirmBlockCancellation = false }) },
         dismissButton = { TextButton(onClick = { confirmBlockCancellation = false }) { Text(stringResource(R.string.cancel)) } }
     )
+    if (showPrivateActions) PrivateLessonActionsSheet(
+        lesson = item,
+        canEdit = item.sourcePrivateLessonId == null,
+        canDelete = item.sourcePrivateLessonId == null,
+        onDismiss = { showPrivateActions = false },
+        onEdit = { showPrivateActions = false; navController.navigate("private/oneoff/edit/${item.id}") },
+        onAddSimilar = { showPrivateActions = false; navController.navigate("private/oneoff/similar/${item.id}") },
+        onToggleCancellation = { showPrivateActions = false; vm.toggleCancellation(item) },
+        onDelete = { showPrivateActions = false; confirmPrivateDelete = true }
+    )
+    if (confirmPrivateDelete) AlertDialog(
+        onDismissRequest = { confirmPrivateDelete = false },
+        title = { Text(stringResource(R.string.delete_private_lesson_instance_question)) },
+        text = { Text(stringResource(R.string.delete_private_lesson_instance_message)) },
+        confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete), onClick = { confirmPrivateDelete = false; vm.deletePrivateOneOff(item) { navController.popBackStack() } }) },
+        dismissButton = { TextButton(onClick = { confirmPrivateDelete = false }) { Text(stringResource(R.string.cancel)) } }
+    )
+    if (confirmDiscardChanges) AlertDialog(
+        onDismissRequest = { confirmDiscardChanges = false },
+        title = { Text(stringResource(R.string.unsaved_lesson_changes_title)) },
+        text = { Text(stringResource(R.string.unsaved_lesson_changes_message)) },
+        confirmButton = { Button(onClick = {
+            vm.saveLesson(item.copy(topic = topic.trim().ifBlank { null }, notes = notes.trim().ifBlank { null })) {
+                confirmDiscardChanges = false
+                navController.popBackStack()
+            }
+        }) { Text(stringResource(R.string.save_and_leave)) } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { confirmDiscardChanges = false; navController.popBackStack() }) { Text(stringResource(R.string.discard_changes), color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { confirmDiscardChanges = false }) { Text(stringResource(R.string.stay)) }
+            }
+        }
+    )
+}
+
+@Composable
+private fun PrivateLessonActionsSheet(
+    lesson: com.eduflow.app.data.local.LessonInstance,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onAddSimilar: () -> Unit,
+    onToggleCancellation: () -> Unit,
+    onDelete: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(lesson.privateLessonName ?: stringResource(R.string.private_lesson), style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${formatBulgarianDate(lesson.actualDate)} · ${lesson.actualStartTime}–${lesson.actualEndTime}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (canEdit) PrivateLessonActionRow(stringResource(R.string.edit), Icons.Default.Edit, onEdit)
+            PrivateLessonActionRow(stringResource(R.string.add_similar_private_lesson), Icons.Default.Add, onAddSimilar)
+            HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            PrivateLessonActionRow(stringResource(if (lesson.cancellationState == CancellationState.CANCELLED) R.string.restore else R.string.cancel_lesson), if (lesson.cancellationState == CancellationState.CANCELLED) Icons.Default.CheckCircle else Icons.Default.Delete, onToggleCancellation, destructive = lesson.cancellationState != CancellationState.CANCELLED)
+            if (canDelete) PrivateLessonActionRow(stringResource(R.string.delete), Icons.Default.Delete, onDelete, destructive = true)
+        }
+    }
+}
+
+@Composable
+private fun PrivateLessonActionRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit, destructive: Boolean = false) {
+    val tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = tint)
+        Text(label, color = tint, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp))
+    }
 }
 
 @Composable private fun SectionTitle(value: String) { Text(value, style = MaterialTheme.typography.titleMedium) }
@@ -169,6 +294,7 @@ fun TasksScreen(database: EduFlowDatabase, navController: NavController) {
     val vm: TasksViewModel = viewModel(factory = DatabaseViewModelFactory(database))
     val pending by vm.pending.collectAsState(); val completed by vm.completed.collectAsState(); val subjects by vm.subjects.collectAsState(); val checklist by vm.checklist.collectAsState(); val lessons by vm.lessons.collectAsState(); val scheduleSlots by vm.scheduleSlots.collectAsState()
     var completedTab by remember { mutableStateOf(false) }
+    var quickChecklistTask by remember { mutableStateOf<Task?>(null) }
     val subjectMap = remember(subjects) { subjects.associateBy { it.id } }
     val checklistByTask = remember(checklist) { checklist.groupBy { it.taskId } }
     val dueRanges = remember(lessons, scheduleSlots) { TaskDuePresentation.rangesByLessonId(lessons, scheduleSlots) }
@@ -183,16 +309,17 @@ fun TasksScreen(database: EduFlowDatabase, navController: NavController) {
                 if (tasks.isEmpty()) item { Text(stringResource(R.string.no_pending_tasks), modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 else TaskPriority.entries.forEach { priority ->
                     val group = tasks.filter { it.priority == priority }
-                    if (group.isNotEmpty()) { item { SectionTitle(priorityLabel(priority)) }; items(group, key = { it.id }) { task -> TaskRow(task, subjectMap[task.subjectId]?.shortName ?: subjectMap[task.subjectId]?.name, vm::toggleTask, { navController.navigate("task/${task.id}/none") }, checklistByTask[task.id].orEmpty(), dueRanges[task.dueLessonInstanceId]) } }
+                    if (group.isNotEmpty()) { item { SectionTitle(priorityLabel(priority)) }; items(group, key = { it.id }) { task -> TaskRow(task, subjectMap[task.subjectId]?.shortName ?: subjectMap[task.subjectId]?.name, vm::toggleTask, { navController.navigate("task/${task.id}/none") }, checklistByTask[task.id].orEmpty(), dueRanges[task.dueLessonInstanceId]) { quickChecklistTask = task } } }
                 }
             } else if (tasks.isEmpty()) item { Text(stringResource(R.string.no_completed_tasks), modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            else items(tasks, key = { it.id }) { task -> TaskRow(task, subjectMap[task.subjectId]?.shortName ?: subjectMap[task.subjectId]?.name, vm::toggleTask, { navController.navigate("task/${task.id}/none") }, checklistByTask[task.id].orEmpty(), dueRanges[task.dueLessonInstanceId]) }
+            else items(tasks, key = { it.id }) { task -> TaskRow(task, subjectMap[task.subjectId]?.shortName ?: subjectMap[task.subjectId]?.name, vm::toggleTask, { navController.navigate("task/${task.id}/none") }, checklistByTask[task.id].orEmpty(), dueRanges[task.dueLessonInstanceId]) { quickChecklistTask = task } }
         }
     }
+    quickChecklistTask?.let { task -> QuickChecklistSheet(task, checklistByTask[task.id].orEmpty(), { quickChecklistTask = null }, vm::toggleChecklist) }
 }
 
 @Composable
-private fun TaskRow(task: Task, subject: String?, onToggle: (Task) -> Unit, onOpen: () -> Unit, checklist: List<TaskChecklistItem> = emptyList(), dueRange: com.eduflow.app.domain.TaskDueTimeRange? = null) {
+private fun TaskRow(task: Task, subject: String?, onToggle: (Task) -> Unit, onOpen: () -> Unit, checklist: List<TaskChecklistItem> = emptyList(), dueRange: com.eduflow.app.domain.TaskDueTimeRange? = null, onQuickChecklist: () -> Unit = {}) {
     val overdue = TaskLogic.isOverdue(task, LocalDateTime.now())
     Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Checkbox(task.status == TaskStatus.COMPLETED, { onToggle(task) })
@@ -206,49 +333,104 @@ private fun TaskRow(task: Task, subject: String?, onToggle: (Task) -> Unit, onOp
             if (checklist.isNotEmpty()) Text(stringResource(R.string.checklist_progress, checklist.count { it.isCompleted }, checklist.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (overdue) Text(stringResource(R.string.overdue), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
+        if (checklist.isNotEmpty()) IconButton(onClick = onQuickChecklist) { Icon(painterResource(R.drawable.ic_checklist), stringResource(R.string.checklist)) }
     }
     HorizontalDivider()
 }
 
 @Composable
+private fun QuickChecklistSheet(task: Task, items: List<TaskChecklistItem>, onDismiss: () -> Unit, onToggle: (TaskChecklistItem) -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(task.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(stringResource(R.string.checklist_progress, items.count { it.isCompleted }, items.size), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            items.forEach { item -> Row(Modifier.fillMaxWidth().clickable { onToggle(item) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(item.isCompleted, { onToggle(item) }); Text(item.text, Modifier.padding(start = 8.dp).weight(1f)) } }
+        }
+    }
+}
+
+@Composable
 fun TaskEditorScreen(database: EduFlowDatabase, taskId: Long?, originId: Long?, navController: NavController, initialSubjectId: Long? = null) {
     val vm: TaskEditorViewModel = viewModel(factory = TaskEditorFactory(database, taskId, originId))
-    val stored by vm.task.collectAsState(); val subjects by vm.subjects.collectAsState(); val origin by vm.originLesson.collectAsState(); val checklist by vm.checklist.collectAsState(); val reminders by vm.reminders.collectAsState(); val error by vm.error.collectAsState()
-    val base = stored ?: Task(title = "", subjectId = origin?.subjectId ?: initialSubjectId, originatingLessonInstanceId = originId, type = TaskType.HOMEWORK, priority = TaskPriority.MUST, createdAt = LocalDateTime.now())
+    val loaded by vm.seed.collectAsState()
+    val seed = loaded ?: run { androidx.compose.material3.CircularProgressIndicator(); return }
+    val stored = seed.task; val origin = seed.origin; val checklist = seed.checklist; val reminders = seed.reminders
+    val subjects by vm.subjects.collectAsState(); val error by vm.error.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notificationSettings by remember(context) { com.eduflow.app.data.NotificationSettingsRepository(context) }.settings.collectAsState(com.eduflow.app.data.NotificationSettings())
+    val sourceSlots by vm.scheduleSlots.collectAsState()
+    val savedOrdinal = seed.ordinal
+    val base = remember(seed, initialSubjectId) { stored ?: Task(title = "", subjectId = origin?.subjectId ?: initialSubjectId, originatingLessonInstanceId = originId, type = TaskType.HOMEWORK, priority = TaskPriority.MUST, createdAt = LocalDateTime.now()) }
     var title by remember(base.id) { mutableStateOf(base.title) }; var description by remember(base.id) { mutableStateOf(base.description.orEmpty()) }; var subjectId by remember(base.id, origin?.subjectId) { mutableStateOf(base.subjectId) }
     var type by remember(base.id) { mutableStateOf(base.type) }; var priority by remember(base.id) { mutableStateOf(base.priority) }
     var mode by remember(base.id) { mutableStateOf(if (base.dueLessonInstanceId != null) DeadlineMode.NEXT else if (base.dueAt != null) DeadlineMode.EXACT else DeadlineMode.NONE) }
     var deadlineChanged by remember(base.id) { mutableStateOf(false) }
+    val dynamic = mode == DeadlineMode.NEXT || mode == DeadlineMode.SECOND_NEXT
+    var destination by remember(base.id) { mutableStateOf<LessonInstance?>(null) }
+    LaunchedEffect(base.id, savedOrdinal) { if (!deadlineChanged && savedOrdinal == 2 && base.dueLessonInstanceId != null) mode = DeadlineMode.SECOND_NEXT }
+    LaunchedEffect(taskId, type, subjectId, sourceSlots) {
+        if (taskId == null && !deadlineChanged) mode = if (com.eduflow.app.data.HomeworkDuePresets.defaultToNext(true, type, subjectId, sourceSlots, false)) DeadlineMode.NEXT else DeadlineMode.NONE
+    }
+    LaunchedEffect(mode, subjectId, origin, sourceSlots, stored, deadlineChanged) {
+        destination = null
+        val persistedMode = if (savedOrdinal == 2) DeadlineMode.SECOND_NEXT else DeadlineMode.NEXT
+        if (dynamic && subjectId != null) destination = if (stored != null && mode == persistedMode && subjectId == base.subjectId) vm.savedDestination(base)
+            else vm.previewSession(subjectId!!, origin, if (mode == DeadlineMode.SECOND_NEXT) 2 else 1)
+    }
     var exactDate by remember(base.id) { mutableStateOf(base.dueAt?.toLocalDate()) }; var exactTime by remember(base.id) { mutableStateOf(base.dueAt?.toLocalTime()) }
     var draftItem by remember { mutableStateOf("") }; var localItems by remember(checklist) { mutableStateOf(checklist) }
     var localReminders by remember(reminders) { mutableStateOf(reminders) }
     var showExactDatePicker by remember(base.id) { mutableStateOf(false) }; var showExactTimePicker by remember(base.id) { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
     var selector by remember { mutableStateOf<TaskEditorSheet?>(null) }
     var subjectSearch by remember { mutableStateOf("") }
-    LaunchedEffect(taskId, mode, priority) {
-        if (taskId == null && mode != DeadlineMode.NONE && localReminders.isEmpty()) localReminders = ReminderLogic.suggestedKinds(priority).map { TaskReminder(taskId = base.id, kind = it, createdAt = LocalDateTime.now()) }
+    val originalMode = if (base.dueLessonInstanceId != null) { if (savedOrdinal == 2) DeadlineMode.SECOND_NEXT else DeadlineMode.NEXT } else if (base.dueAt != null) DeadlineMode.EXACT else if (taskId == null && com.eduflow.app.data.HomeworkDuePresets.defaultToNext(true, base.type, base.subjectId, sourceSlots, false)) DeadlineMode.NEXT else DeadlineMode.NONE
+    val edited = base.copy(title = title, description = description, subjectId = subjectId, type = type, priority = priority)
+    val originalDraft = TaskDraft.from(base, originalMode, base.dueAt?.toLocalDate(), base.dueAt?.toLocalTime(), checklist, reminders)
+    val currentDraft = TaskDraft.from(edited, mode, exactDate, exactTime, localItems, localReminders)
+    val dirty = currentDraft != originalDraft
+    val dynamicChanged = mode != originalMode || subjectId != base.subjectId
+    fun saveDraft(onSaved: () -> Unit) {
+        val due = if (mode == DeadlineMode.EXACT) exactDate?.let { date -> exactTime?.let { time -> LocalDateTime.of(date, time) } } else null
+        if (mode == DeadlineMode.EXACT && due == null) { vm.error.value = "INVALID" }
+        else if (title.isBlank()) vm.error.value = "TITLE"
+        else vm.save(base.copy(title = currentDraft.title, description = currentDraft.description, subjectId = subjectId, type = type, priority = priority, dueAt = when (mode) { DeadlineMode.EXACT -> due; DeadlineMode.NEXT, DeadlineMode.SECOND_NEXT -> base.dueAt; DeadlineMode.NONE -> null }, dueLessonInstanceId = if (dynamic) base.dueLessonInstanceId else null, intendedDueLessonInstanceId = if (dynamicChanged) null else base.intendedDueLessonInstanceId), localItems, localReminders, dynamic, onSaved, if (mode == DeadlineMode.SECOND_NEXT) 2 else 1)
     }
-    Scaffold(topBar = { EduFlowChildTopAppBar(title = if (taskId == null) stringResource(R.string.add_task) else stringResource(R.string.edit), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
+    val latestDirty = rememberUpdatedState(dirty)
+    fun leaveOrConfirm() { if (latestDirty.value) confirmLeave = true else navController.popBackStack() }
+    EditorBackHandler(::leaveOrConfirm)
+    Scaffold(topBar = { EduFlowChildTopAppBar(title = if (taskId == null) stringResource(R.string.add_task) else stringResource(R.string.edit), navigationIcon = { IconButton(onClick = ::leaveOrConfirm) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(title, { title = it }, label = { Text(stringResource(R.string.task_title)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(description, { description = it }, label = { Text(stringResource(R.string.task_description)) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
             SelectorField(stringResource(R.string.subject_optional), subjects.firstOrNull { it.id == subjectId }?.let { it.shortName ?: it.name } ?: stringResource(R.string.no_subject)) { selector = TaskEditorSheet.SUBJECT }
             SelectorField(stringResource(R.string.task_type), typeLabel(type)) { selector = TaskEditorSheet.TYPE }
             SelectorField(stringResource(R.string.priority), priorityLabel(priority)) { selector = TaskEditorSheet.PRIORITY }
-            SelectorField(stringResource(R.string.deadline), when (mode) { DeadlineMode.NONE -> stringResource(R.string.no_deadline); DeadlineMode.EXACT -> stringResource(R.string.exact_deadline); DeadlineMode.NEXT -> stringResource(R.string.next_lesson_deadline) }) { selector = TaskEditorSheet.DEADLINE }
+            SelectorField(stringResource(R.string.deadline), when (mode) { DeadlineMode.NONE -> stringResource(R.string.no_deadline); DeadlineMode.EXACT -> stringResource(R.string.exact_deadline); DeadlineMode.NEXT -> stringResource(R.string.next_lesson_deadline); DeadlineMode.SECOND_NEXT -> stringResource(R.string.second_next_lesson_deadline) }) { selector = TaskEditorSheet.DEADLINE }
+            if (dynamic) Text(destination?.let { "${formatBulgarianDate(it.actualDate)} · ${it.actualStartTime}" } ?: stringResource(R.string.no_next_lesson), style = MaterialTheme.typography.bodySmall)
             if (mode == DeadlineMode.EXACT) {
                 SelectorField(stringResource(R.string.deadline_date), exactDate?.let(::formatBulgarianDateWithYear) ?: stringResource(R.string.choose_date)) { showExactDatePicker = true; vm.error.value = null }
                 SelectorField(stringResource(R.string.deadline_time), exactTime?.format(taskTimeFormat) ?: stringResource(R.string.choose_time)) { showExactTimePicker = true; vm.error.value = null }
             }
-            SelectorField(stringResource(R.string.reminders), when { localReminders.isEmpty() -> stringResource(R.string.none); localReminders.size == 1 -> reminderLabel(localReminders.first().kind); else -> stringResource(R.string.reminder_count, localReminders.size) }) { selector = TaskEditorSheet.REMINDERS }
-            SectionTitle(stringResource(R.string.checklist)); localItems.forEachIndexed { index, item -> Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(item.isCompleted, { localItems = localItems.toMutableList().also { it[index] = item.copy(isCompleted = it[index].isCompleted.not()) } }); OutlinedTextField(item.text, { text -> localItems = localItems.toMutableList().also { it[index] = item.copy(text = text) } }, modifier = Modifier.weight(1f)); IconButton(onClick = { vm.deleteChecklist(item); localItems = localItems - item }) { Icon(Icons.Default.Delete, stringResource(R.string.delete)) } } }
-            Row { OutlinedTextField(draftItem, { draftItem = it }, label = { Text(stringResource(R.string.add_checklist_item)) }, modifier = Modifier.weight(1f)); TextButton(onClick = { if (draftItem.isNotBlank()) { localItems = localItems + TaskChecklistItem(taskId = base.id, text = draftItem.trim(), position = localItems.size); draftItem = "" } }) { Text(stringResource(R.string.add)) } }
+            SelectorField(stringResource(R.string.reminders), taskReminderSummary(notificationSettings, priority, mode != DeadlineMode.NONE, localReminders)) { selector = TaskEditorSheet.REMINDERS }
+            SectionTitle(stringResource(R.string.checklist)); localItems.forEachIndexed { index, item ->
+                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(item.isCompleted, { localItems = localItems.toMutableList().also { it[index] = item.copy(isCompleted = it[index].isCompleted.not()) } })
+                        OutlinedTextField(item.text, { text -> localItems = localItems.toMutableList().also { it[index] = item.copy(text = text) } }, modifier = Modifier.weight(1f), singleLine = true)
+                        IconButton(onClick = { localItems = localItems - item }) { Icon(Icons.Default.Delete, stringResource(R.string.delete), tint = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .42f)) {
+                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(draftItem, { draftItem = it }, label = { Text(stringResource(R.string.add_checklist_item)) }, modifier = Modifier.weight(1f), singleLine = true)
+                    Button(onClick = { if (draftItem.isNotBlank()) { localItems = localItems + TaskChecklistItem(taskId = base.id, text = draftItem.trim(), position = localItems.size); draftItem = "" } }, modifier = Modifier.padding(start = 8.dp)) { Text(stringResource(R.string.add)) }
+                }
+            }
             error?.let { Text(when (it) { "NO_NEXT" -> stringResource(R.string.no_next_lesson); "TITLE" -> stringResource(R.string.task_required); else -> stringResource(R.string.invalid_deadline) }, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = {
-                val due = if (mode == DeadlineMode.EXACT) exactDate?.let { date -> exactTime?.let { time -> LocalDateTime.of(date, time) } } else null
-                if (mode == DeadlineMode.EXACT && due == null) { vm.error.value = "INVALID" } else if (title.isBlank()) vm.error.value = "TITLE" else vm.save(base.copy(title = title.trim(), description = description.trim().ifBlank { null }, subjectId = subjectId, type = type, priority = priority, dueAt = when (mode) { DeadlineMode.EXACT -> due; DeadlineMode.NEXT -> base.dueAt; DeadlineMode.NONE -> null }, dueLessonInstanceId = if (mode == DeadlineMode.NEXT) base.dueLessonInstanceId else null, intendedDueLessonInstanceId = if (deadlineChanged) null else base.intendedDueLessonInstanceId), localItems, localReminders, mode == DeadlineMode.NEXT) { navController.popBackStack() }
-            }) { Text(stringResource(R.string.save)) }
+            Button(onClick = { saveDraft { navController.popBackStack() } }, modifier = Modifier.fillMaxWidth(), enabled = taskId == null || dirty) { Text(stringResource(R.string.save)) }
             stored?.let { TextButton(onClick = { confirmDelete = true }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) } }
         }
     }
@@ -256,8 +438,15 @@ fun TaskEditorScreen(database: EduFlowDatabase, taskId: Long?, originId: Long?, 
         onDismissRequest = { confirmDelete = false },
         title = { Text(stringResource(R.string.delete_task_question)) },
         text = { Text(stringResource(R.string.delete_task_message)) },
-        confirmButton = { TextButton(onClick = { stored?.let { vm.deleteTask(it) { navController.popBackStack() } } }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) } },
+        confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete), onClick = { stored?.let { vm.deleteTask(it) { navController.popBackStack() } } }) },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) } }
+    )
+    if (confirmLeave) AlertDialog(
+        onDismissRequest = { confirmLeave = false },
+        title = { Text(stringResource(R.string.unsaved_changes_title)) },
+        text = { Text(stringResource(R.string.unsaved_task_changes_message)) },
+        confirmButton = { Button(onClick = { saveDraft { confirmLeave = false; navController.popBackStack() } }) { Text(stringResource(R.string.save_and_leave)) } },
+        dismissButton = { Row { TextButton(onClick = { confirmLeave = false; navController.popBackStack() }) { Text(stringResource(R.string.leave_without_saving), color = MaterialTheme.colorScheme.error) }; TextButton(onClick = { confirmLeave = false }) { Text(stringResource(R.string.stay)) } } }
     )
     selector?.let { sheet ->
         ModalBottomSheet(onDismissRequest = { selector = null }) {
@@ -265,7 +454,13 @@ fun TaskEditorScreen(database: EduFlowDatabase, taskId: Long?, originId: Long?, 
                 TaskEditorSheet.SUBJECT -> SubjectPickerSheet(subjects, subjectSearch, subjectId, true, { subjectSearch = it }, { subjectId = it; selector = null })
                 TaskEditorSheet.TYPE -> OptionSheet(stringResource(R.string.task_type), TaskType.entries.toList(), typeLabel(type), { typeLabel(it) }) { type = it; selector = null }
                 TaskEditorSheet.PRIORITY -> OptionSheet(stringResource(R.string.priority), TaskPriority.entries.toList(), priorityLabel(priority), { priorityLabel(it) }) { priority = it; selector = null }
-                TaskEditorSheet.DEADLINE -> DeadlinePickerSheet(subjectId != null) { mode = it; deadlineChanged = true; selector = null }
+                TaskEditorSheet.DEADLINE -> DeadlinePickerSheet(subjectId != null) {
+                    if (it == DeadlineMode.EXACT) {
+                        val prefill = concreteDueSelection(exactDate, exactTime, java.time.ZonedDateTime.now())
+                        exactDate = prefill.first; exactTime = prefill.second
+                    }
+                    mode = it; deadlineChanged = true; selector = null
+                }
                 TaskEditorSheet.REMINDERS -> ReminderPickerSheet(localReminders, mode != DeadlineMode.NONE, { localReminders = it }, base.id)
             }
         }
@@ -290,9 +485,9 @@ private fun <T> OptionSheet(title: String, options: List<T>, selected: String, l
 @Composable
 private fun DeadlinePickerSheet(hasSubject: Boolean, onSelect: (DeadlineMode) -> Unit) {
     Text(stringResource(R.string.deadline), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-    val options: List<DeadlineMode> = if (hasSubject) listOf(DeadlineMode.NONE, DeadlineMode.EXACT, DeadlineMode.NEXT) else listOf(DeadlineMode.NONE, DeadlineMode.EXACT)
+    val options: List<DeadlineMode> = if (hasSubject) listOf(DeadlineMode.NONE, DeadlineMode.EXACT, DeadlineMode.NEXT, DeadlineMode.SECOND_NEXT) else listOf(DeadlineMode.NONE, DeadlineMode.EXACT)
     options.forEach { option ->
-        TextButton(onClick = { onSelect(option) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) { Text(when (option) { DeadlineMode.NONE -> stringResource(R.string.no_deadline); DeadlineMode.EXACT -> stringResource(R.string.exact_deadline); DeadlineMode.NEXT -> stringResource(R.string.next_lesson_deadline) }) }
+        TextButton(onClick = { onSelect(option) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) { Text(when (option) { DeadlineMode.NONE -> stringResource(R.string.no_deadline); DeadlineMode.EXACT -> stringResource(R.string.exact_deadline); DeadlineMode.NEXT -> stringResource(R.string.next_lesson_deadline); DeadlineMode.SECOND_NEXT -> stringResource(R.string.second_next_lesson_deadline) }) }
     }
 }
 
@@ -303,17 +498,34 @@ private fun ReminderPickerSheet(reminders: List<TaskReminder>, hasDeadline: Bool
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var customError by remember { mutableStateOf(false) }
+    var personalCache by remember { mutableStateOf(reminders) }
+    val personal = reminders.isNotEmpty()
     Text(stringResource(R.string.reminders), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-    reminders.forEach { reminder -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(reminder.enabled, { checked -> onChanged(reminders.map { if (it == reminder) it.copy(enabled = checked) else it }) }); Text(reminderLabel(reminder.kind), Modifier.weight(1f)); IconButton(onClick = { onChanged(reminders - reminder) }) { Icon(Icons.Default.Delete, stringResource(R.string.delete)) } } }
-    if (hasDeadline) listOf(TaskReminderKind.AT_DEADLINE, TaskReminderKind.ONE_HOUR_BEFORE, TaskReminderKind.ONE_DAY_BEFORE, TaskReminderKind.THREE_DAYS_BEFORE).filter { kind -> reminders.none { it.kind == kind } }.forEach { kind -> TextButton(onClick = { onChanged(reminders + TaskReminder(taskId = taskId, kind = kind, createdAt = LocalDateTime.now())) }, modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.add_reminder_format, reminderLabel(kind))) } }
+    fun changePersonal(values: List<TaskReminder>) {
+        val updated = values.filterNot { it.isModeMarker() }.ifEmpty { listOf(personalReminderMarker(taskId)) }
+        personalCache = updated; onChanged(updated)
+    }
+    Row(Modifier.fillMaxWidth().clickable { if (personal) personalCache = reminders; onChanged(emptyList()) }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.RadioButton(!personal, { if (personal) personalCache = reminders; onChanged(emptyList()) }); Text("Използвай глобалните настройки")
+    }
+    Row(Modifier.fillMaxWidth().clickable { changePersonal(personalCache) }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.RadioButton(personal, { changePersonal(personalCache) }); Text("Персонални напомняния")
+    }
+    Text("Персоналните заменят глобалните. Общият превключвател важи и за тях.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+    if (personal) {
+    reminders.filterNot { it.isModeMarker() }.forEach { reminder -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(reminder.enabled, { checked -> changePersonal(reminders.map { if (it == reminder) it.copy(enabled = checked) else it }) }); Text(if (reminder.kind == TaskReminderKind.CUSTOM) reminder.customTriggerAt?.let { "${formatBulgarianDateWithYear(it.toLocalDate())} · ${it.toLocalTime().format(taskTimeFormat)}" } ?: reminderLabel(reminder.kind) else reminderLabel(reminder.kind), Modifier.weight(1f)); IconButton(onClick = { changePersonal(reminders - reminder) }) { Icon(Icons.Default.Delete, stringResource(R.string.delete), tint = MaterialTheme.colorScheme.error) } } }
+    Text("Бърз избор", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+    if (hasDeadline) listOf(TaskReminderKind.AT_DEADLINE, TaskReminderKind.ONE_HOUR_BEFORE, TaskReminderKind.ONE_DAY_BEFORE, TaskReminderKind.THREE_DAYS_BEFORE).filter { kind -> reminders.none { it.kind == kind } }.forEach { kind -> TextButton(onClick = { changePersonal(reminders + TaskReminder(taskId = taskId, kind = kind, createdAt = LocalDateTime.now())) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) { Text(reminderLabel(kind)) } }
+    Text("Конкретна дата и час", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
     SelectorField(stringResource(R.string.custom_reminder_date), formatBulgarianDateWithYear(customDate)) { showDatePicker = true; customError = false }
     SelectorField(stringResource(R.string.custom_reminder_time_label), customTime.format(taskTimeFormat)) { showTimePicker = true; customError = false }
-    TextButton(onClick = {
+    Button(onClick = {
         val trigger = LocalDateTime.of(customDate, customTime)
-        if (trigger.isAfter(LocalDateTime.now())) onChanged(reminders + TaskReminder(taskId = taskId, kind = TaskReminderKind.CUSTOM, customTriggerAt = trigger, createdAt = LocalDateTime.now()))
+        if (trigger.isAfter(LocalDateTime.now())) changePersonal(reminders + TaskReminder(taskId = taskId, kind = TaskReminderKind.CUSTOM, customTriggerAt = trigger, createdAt = LocalDateTime.now()))
         else customError = true
-    }, modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.add)) }
+    }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) { Text("Добави напомняне") }
     if (customError) Text(stringResource(R.string.invalid_reminder_time), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+    }
     if (showDatePicker) {
         val picker = rememberDatePickerState(initialSelectedDateMillis = customDate.toPickerMillis())
         DatePickerDialog(onDismissRequest = { showDatePicker = false }, confirmButton = { TextButton(onClick = { picker.selectedDateMillis?.let { customDate = it.toLocalDateFromPicker() }; showDatePicker = false }) { Text(stringResource(R.string.save)) } }, dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text(stringResource(R.string.cancel)) } }) { DatePicker(picker) }

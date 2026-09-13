@@ -15,7 +15,7 @@ class BlockAwareNextLessonResolverTest {
     private val academicYear = AcademicYearSettings(LocalDate.of(2026, 9, 1), LocalDate.of(2027, 5, 31))
     private val slots = (1..8).map { index ->
         val start = LocalTime.of(8, 0).plusMinutes((index - 1) * 45L)
-        ScheduleSlot(id = 100L + index, scheduleTemplateId = 1, weekday = 1, lessonIndex = index, startTime = start, endTime = start.plusMinutes(45), subjectId = subjectId)
+        ScheduleSlot(id = 100L + index, scheduleTemplateId = 1, weekday = 1, lessonIndex = index, startTime = start, endTime = start.plusMinutes(45), subjectId = subjectId, logicalBlockId = "fixture-block")
     }
 
     private fun lesson(id: Long, date: LocalDate, period: Int, cancelled: Boolean = false) = LessonInstance(
@@ -50,6 +50,19 @@ class BlockAwareNextLessonResolverTest {
         val second = lesson(2, LocalDate.of(2026, 9, 14), 2)
         val future = lesson(3, LocalDate.of(2026, 9, 17), 1)
         assertEquals(future.id, resolve(second, listOf(first, second, future))?.id)
+    }
+
+    @Test fun mixedSubjectSiblingIsNotTreatedAsTheNextClass() {
+        val day = LocalDate.of(2026, 9, 14)
+        val first = LessonInstance(1, day, LocalTime.of(8, 0), LocalTime.of(8, 45), subjectId, 101, kind = LessonKind.SCHOOL)
+        val sibling = LessonInstance(2, day, LocalTime.of(8, 45), LocalTime.of(9, 30), 11, 102, kind = LessonKind.SCHOOL)
+        val future = LessonInstance(3, day.plusDays(3), LocalTime.of(8, 0), LocalTime.of(8, 45), subjectId, 103, kind = LessonKind.SCHOOL)
+        val mixedSlots = listOf(
+            ScheduleSlot(101, 1, 1, 1, first.actualStartTime, first.actualEndTime, subjectId, logicalBlockId = "mixed"),
+            ScheduleSlot(102, 1, 1, 2, sibling.actualStartTime, sibling.actualEndTime, 11, logicalBlockId = "mixed"),
+            ScheduleSlot(103, 1, 4, 1, future.actualStartTime, future.actualEndTime, subjectId)
+        )
+        assertEquals(future.id, NextLessonResolver.chooseSchoolBlockAware(first, subjectId, listOf(first, sibling, future), mixedSlots, emptySet(), academicYear)?.id)
     }
 
     @Test fun threePeriodCurrentBlockIsExcludedFromAnyMember() {
@@ -88,6 +101,30 @@ class BlockAwareNextLessonResolverTest {
         val vacation = lesson(3, LocalDate.of(2026, 12, 25), 1)
         val valid = lesson(4, LocalDate.of(2027, 1, 4), 1)
         assertEquals(valid.id, resolve(current, listOf(current, noSchool, vacation, valid), setOf(noSchool.actualDate, vacation.actualDate))?.id)
+    }
+
+    @Test fun consecutiveNoSchoolAndCancelledSessionsAreSkipped() {
+        val current = lesson(1, LocalDate.of(2026, 9, 14), 1)
+        val noSchoolTuesday = lesson(2, LocalDate.of(2026, 9, 15), 1)
+        val cancelledWednesday = lesson(3, LocalDate.of(2026, 9, 16), 1, cancelled = true)
+        val validFriday = lesson(4, LocalDate.of(2026, 9, 18), 1)
+        assertEquals(
+            validFriday.id,
+            resolve(current, listOf(current, noSchoolTuesday, cancelledWednesday, validFriday), setOf(noSchoolTuesday.actualDate))?.id
+        )
+    }
+
+    @Test fun noSchoolMixedBlockSkipsTheWholeLogicalSession() {
+        val day = LocalDate.of(2026, 9, 14)
+        val first = LessonInstance(1, day, LocalTime.of(8, 0), LocalTime.of(8, 45), subjectId, 101, kind = LessonKind.SCHOOL)
+        val sibling = LessonInstance(2, day, LocalTime.of(8, 45), LocalTime.of(9, 30), 11, 102, kind = LessonKind.SCHOOL)
+        val future = LessonInstance(3, day.plusDays(3), LocalTime.of(8, 0), LocalTime.of(8, 45), subjectId, 103, kind = LessonKind.SCHOOL)
+        val mixedSlots = listOf(
+            ScheduleSlot(101, 1, 1, 1, first.actualStartTime, first.actualEndTime, subjectId, logicalBlockId = "mixed"),
+            ScheduleSlot(102, 1, 1, 2, sibling.actualStartTime, sibling.actualEndTime, 11, logicalBlockId = "mixed"),
+            ScheduleSlot(103, 1, 4, 1, future.actualStartTime, future.actualEndTime, subjectId)
+        )
+        assertEquals(future.id, NextLessonResolver.chooseSchoolBlockAware(first, subjectId, listOf(first, sibling, future), mixedSlots, setOf(day), academicYear)?.id)
     }
 
     @Test fun datedAbGapFindsTheLaterRealOccurrence() {

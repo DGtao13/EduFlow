@@ -3,13 +3,13 @@ package com.eduflow.app.data
 import kotlinx.serialization.Serializable
 
 @Serializable enum class PackageType { FULL_ARCHIVE, SCHOOL_PROGRAM, STUDY_DATA }
-@Serializable data class BackupManifest(val backupFormatVersion: Int = 2, val createdAt: String, val roomVersion: Int = 8, val appVersion: String = "1.0", val packageType: PackageType = PackageType.FULL_ARCHIVE, val programFingerprint: String? = null)
+@Serializable data class BackupManifest(val backupFormatVersion: Int = 2, val createdAt: String, val roomVersion: Int = 10, val appVersion: String = "1.0", val packageType: PackageType = PackageType.FULL_ARCHIVE, val programFingerprint: String? = null)
 @Serializable data class BackupSettings(val taskRemindersEnabled: Boolean, val dailySummaryEnabled: Boolean, val summaryHour: Int, val summaryMinute: Int, val schoolYearStart: String? = null, val schoolYearEnd: String? = null)
 @Serializable data class SubjectDto(val id: Long, val name: String, val shortName: String?, val teacher: String?, val room: String?, val color: Long)
 @Serializable data class TemplateDto(val id: Long, val name: String)
 @Serializable data class CycleConfigDto(val id: Int, val monday: String, val templateId: Long)
 @Serializable data class CycleEntryDto(val id: Long, val position: Int, val templateId: Long)
-@Serializable data class SlotDto(val id: Long, val templateId: Long, val weekday: Int, val lessonIndex: Int, val start: String, val end: String, val subjectId: Long?, val teacher: String?, val room: String?, val group: String?)
+@Serializable data class SlotDto(val id: Long, val templateId: Long, val weekday: Int, val lessonIndex: Int, val start: String, val end: String, val subjectId: Long?, val teacher: String?, val room: String?, val group: String?, val logicalBlockId: String? = null)
 @Serializable data class PrivateDto(val id: Long, val subjectId: Long?, val weekday: Int, val start: String, val end: String, val startDate: String, val endDate: String?, val interval: Int, val teacher: String?, val room: String?, val enabled: Boolean, val privateName: String? = null, val privateLocationKind: String? = null, val label: String? = null)
 @Serializable data class LessonDto(val id: Long, val date: String, val start: String, val end: String, val subjectId: Long?, val slotId: Long?, val privateId: Long?, val kind: String, val cancellation: String, val teacher: String?, val room: String?, val topic: String?, val notes: String?, val privateName: String? = null, val privateLocationKind: String? = null)
 @Serializable data class ExceptionDto(val date: String, val type: String, val title: String?, val reason: String?, val note: String?)

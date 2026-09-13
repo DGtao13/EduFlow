@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TaskChecklistItem::class,
         TaskReminder::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(EduFlowConverters::class)
@@ -49,8 +49,40 @@ abstract class EduFlowDatabase : RoomDatabase() {
                     context.applicationContext,
                     EduFlowDatabase::class.java,
                     "eduflow.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).build().also { instance = it }
             }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                val slots = database.query("""
+                    SELECT s.id, s.scheduleTemplateId, s.weekday, s.lessonIndex, s.subjectId,
+                           COALESCE(NULLIF(TRIM(s.teacherOverride), ''), sub.defaultTeacher) AS effectiveTeacher,
+                           COALESCE(NULLIF(TRIM(s.roomOverride), ''), sub.defaultRoom) AS effectiveRoom,
+                           s.groupInfo, s.logicalBlockId
+                    FROM schedule_slots s LEFT JOIN subjects sub ON sub.id = s.subjectId
+                    ORDER BY s.scheduleTemplateId, s.weekday, s.lessonIndex, s.id
+                """.trimIndent()).use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) add(
+                            LegacySchoolBlockSlot(
+                                id = cursor.getLong(0), templateId = cursor.getLong(1), weekday = cursor.getInt(2), lessonIndex = cursor.getInt(3),
+                                subjectId = cursor.getLong(4).takeIf { !cursor.isNull(4) }, effectiveTeacher = cursor.getString(5), effectiveRoom = cursor.getString(6),
+                                groupInfo = cursor.getString(7), logicalBlockId = cursor.getString(8)
+                            )
+                        )
+                    }
+                }
+                SchoolBlockNormalization.legacyAssignments(slots).forEach { (slotId, blockId) ->
+                    database.execSQL("UPDATE schedule_slots SET logicalBlockId = ? WHERE id = ?", arrayOf(blockId, slotId))
+                }
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE schedule_slots ADD COLUMN logicalBlockId TEXT")
+            }
+        }
 
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(database: SupportSQLiteDatabase) {

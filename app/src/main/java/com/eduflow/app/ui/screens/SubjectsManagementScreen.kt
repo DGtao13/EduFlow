@@ -15,14 +15,18 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -33,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,6 +81,7 @@ fun SubjectsManagementScreen(database: EduFlowDatabase, navController: NavContro
     var editing by remember { mutableStateOf<Subject?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Subject?>(null) }
+    var deleteBlocked by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { EduFlowRootTopAppBar(stringResource(R.string.nav_subjects)) },
@@ -94,7 +100,7 @@ fun SubjectsManagementScreen(database: EduFlowDatabase, navController: NavContro
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(stringResource(R.string.subjects_empty_title), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(R.string.subjects_empty_message), Modifier.padding(top = 8.dp))
+                Text(stringResource(R.string.subjects_empty_message), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { editing = null; showEditor = true }, Modifier.padding(top = 20.dp)) {
                     Icon(Icons.Default.Add, null)
                     Text(stringResource(R.string.add_subject), Modifier.padding(start = 8.dp))
@@ -104,14 +110,21 @@ fun SubjectsManagementScreen(database: EduFlowDatabase, navController: NavContro
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(subjects, key = { it.id }) { subject ->
                     var expanded by remember(subject.id) { mutableStateOf(false) }
-                    Row(Modifier.fillMaxWidth().clickable { navController.navigate("subject/${subject.id}") }.padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.foundation.layout.Box(Modifier.size(width = 5.dp, height = 42.dp).background(Color(subject.color)))
-                        Column(Modifier.weight(1f).padding(start = 12.dp, end = 6.dp)) {
-                            Text(subject.name, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            val details = listOfNotNull(subject.shortName, subject.defaultTeacher, subject.defaultRoom).joinToString(" · ")
-                            if (details.isNotBlank()) Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                        tonalElevation = 1.dp
+                    ) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable { navController.navigate("subject/${subject.id}") }.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(width = 5.dp, height = 42.dp).clip(RoundedCornerShape(3.dp)).background(Color(subject.color)))
+                            Column(Modifier.weight(1f).padding(start = 12.dp, end = 6.dp)) {
+                                Text(subject.name, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                                val details = listOfNotNull(subject.shortName, subject.defaultTeacher, subject.defaultRoom).joinToString(" · ")
+                                if (details.isNotBlank()) Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                            Box { IconButton(onClick = { expanded = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.subject_actions)) }; DropdownMenu(expanded, { expanded = false }) { DropdownMenuItem(text = { Text(stringResource(R.string.edit_subject)) }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { expanded = false; editing = subject; showEditor = true }); DropdownMenuItem(text = { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { expanded = false; deleting = subject }) } }
                         }
-                        Box { IconButton(onClick = { expanded = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.subject_actions)) }; DropdownMenu(expanded, { expanded = false }) { DropdownMenuItem(text = { Text(stringResource(R.string.edit_subject)) }, onClick = { expanded = false; editing = subject; showEditor = true }); DropdownMenuItem(text = { Text(stringResource(R.string.delete)) }, onClick = { expanded = false; deleting = subject }) } }
                     }
                 }
             }
@@ -126,10 +139,16 @@ fun SubjectsManagementScreen(database: EduFlowDatabase, navController: NavContro
             onDismissRequest = { deleting = null },
             title = { Text(stringResource(R.string.delete_subject_question, subject.name)) },
             text = { Text(stringResource(R.string.subject_delete_message)) },
-            confirmButton = { TextButton(onClick = { viewModel.delete(subject); deleting = null }) { Text(stringResource(R.string.delete)) } },
+            confirmButton = { Button(onClick = { viewModel.delete(subject, { deleteBlocked = true }, {}); deleting = null }, colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.delete)) } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } }
         )
     }
+    if (deleteBlocked) AlertDialog(
+        onDismissRequest = { deleteBlocked = false },
+        title = { Text(stringResource(R.string.subject_delete_blocked_title)) },
+        text = { Text(stringResource(R.string.subject_delete_blocked_message)) },
+        confirmButton = { TextButton(onClick = { deleteBlocked = false }) { Text(stringResource(R.string.close)) } }
+    )
 }
 
 @Composable
@@ -141,9 +160,13 @@ private fun SubjectEditorDialog(subject: Subject?, onDismiss: () -> Unit, onSave
     var color by remember(subject) { mutableStateOf(subject?.color ?: subjectColors.first()) }
     var error by remember { mutableStateOf<String?>(null) }
     val requiredNameError = stringResource(R.string.name_required)
+    val original = subject ?: Subject(0, "", color = subjectColors.first())
+    val draft = original.copy(name = name.trim(), shortName = shortName.trim().ifBlank { null },
+        defaultTeacher = teacher.trim().ifBlank { null }, defaultRoom = room.trim().ifBlank { null }, color = color)
+    val leave = protectedEditorExit(draft != original, onDismiss)
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = leave,
         title = { Text(stringResource(if (subject == null) R.string.add_subject else R.string.edit_subject)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -186,9 +209,9 @@ private fun SubjectEditorDialog(subject: Subject?, onDismiss: () -> Unit, onSave
                 }
             }
         },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { Button(onClick = {
             if (name.isBlank()) error = requiredNameError else onSave(Subject(subject?.id ?: 0, name.trim(), shortName.trim().ifBlank { null }, teacher.trim().ifBlank { null }, room.trim().ifBlank { null }, color))
         }) { Text(stringResource(R.string.save)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
+        dismissButton = { TextButton(onClick = leave) { Text(stringResource(R.string.cancel)) } }
     )
 }

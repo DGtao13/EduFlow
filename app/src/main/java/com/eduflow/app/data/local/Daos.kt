@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
@@ -22,7 +23,7 @@ interface SubjectDao {
 
 @Dao
 interface ScheduleTemplateDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(template: ScheduleTemplate): Long
+    @Upsert suspend fun upsert(template: ScheduleTemplate): Long
     @Update suspend fun update(template: ScheduleTemplate)
     @Delete suspend fun delete(template: ScheduleTemplate)
     @Query("SELECT * FROM schedule_templates ORDER BY name") fun observeAll(): Flow<List<ScheduleTemplate>>
@@ -33,7 +34,7 @@ interface ScheduleTemplateDao {
 
 @Dao
 interface ScheduleSlotDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(slot: ScheduleSlot): Long
+    @Upsert suspend fun upsert(slot: ScheduleSlot): Long
     @Update suspend fun update(slot: ScheduleSlot)
     @Delete suspend fun delete(slot: ScheduleSlot)
     @Query("SELECT * FROM schedule_slots WHERE scheduleTemplateId = :templateId ORDER BY weekday, lessonIndex, startTime")
@@ -43,12 +44,13 @@ interface ScheduleSlotDao {
     @Query("SELECT * FROM schedule_slots WHERE id = :id") fun observeById(id: Long): Flow<ScheduleSlot?>
     @Query("SELECT * FROM schedule_slots") fun observeAll(): Flow<List<ScheduleSlot>>
     @Query("SELECT * FROM schedule_slots") suspend fun getAll(): List<ScheduleSlot>
+    @Query("SELECT COUNT(*) FROM schedule_slots WHERE subjectId = :subjectId") suspend fun countForSubject(subjectId: Long): Int
     @Query("DELETE FROM schedule_slots") suspend fun clear()
 }
 
 @Dao
 interface RecurringPrivateLessonDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(lesson: RecurringPrivateLesson): Long
+    @Upsert suspend fun upsert(lesson: RecurringPrivateLesson): Long
     @Update suspend fun update(lesson: RecurringPrivateLesson)
     @Delete suspend fun delete(lesson: RecurringPrivateLesson)
     @Query("SELECT * FROM recurring_private_lessons ORDER BY enabled DESC, weekday, startTime") fun observeAll(): Flow<List<RecurringPrivateLesson>>
@@ -150,6 +152,7 @@ interface TaskDao {
 
 @Dao
 interface TaskReminderDao {
+    @Query("SELECT * FROM task_reminders") fun observeAll(): Flow<List<TaskReminder>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(reminder: TaskReminder): Long
     @Update suspend fun update(reminder: TaskReminder)
     @Delete suspend fun delete(reminder: TaskReminder)

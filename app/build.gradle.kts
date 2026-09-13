@@ -64,6 +64,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -137,6 +141,9 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("androidx.room:room-testing:2.6.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

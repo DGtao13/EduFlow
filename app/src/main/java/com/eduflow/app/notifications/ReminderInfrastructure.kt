@@ -40,6 +40,7 @@ import java.util.concurrent.TimeUnit
 object EduFlowNotifications {
     const val TASK_CHANNEL = "task_reminders"
     const val SUMMARY_CHANNEL = "daily_summary"
+    const val LESSON_CHANNEL = "lesson_reminders_v1"
     const val EXTRA_TASK_ID = "task_id"
     const val ACTION_OPEN_TASK = "com.eduflow.app.OPEN_TASK"
     const val ACTION_QUICK_ADD = "com.eduflow.app.QUICK_ADD"
@@ -49,10 +50,12 @@ object EduFlowNotifications {
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(TASK_CHANNEL, context.getString(R.string.notification_channel_tasks), NotificationManager.IMPORTANCE_DEFAULT).apply { description = context.getString(R.string.notification_channel_tasks_description) })
             manager.createNotificationChannel(NotificationChannel(SUMMARY_CHANNEL, context.getString(R.string.notification_channel_summary), NotificationManager.IMPORTANCE_DEFAULT).apply { description = context.getString(R.string.notification_channel_summary_description) })
+            manager.createNotificationChannel(NotificationChannel(LESSON_CHANNEL, "Уроци", NotificationManager.IMPORTANCE_DEFAULT))
         }
     }
-    fun isAllowed(context: Context): Boolean = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    fun isAllowed(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
     @SuppressLint("MissingPermission") fun notify(context: Context, id: Int, notification: android.app.Notification) { if (isAllowed(context)) androidx.core.app.NotificationManagerCompat.from(context).notify(id, notification) }
+    @SuppressLint("MissingPermission") fun notifyTagged(context: Context, tag: String, notification: android.app.Notification) { if (isAllowed(context)) androidx.core.app.NotificationManagerCompat.from(context).notify(tag, 0, notification) }
     fun taskIntent(context: Context, taskId: Long): PendingIntent = PendingIntent.getActivity(context, taskId.toInt(), Intent(context, MainActivity::class.java).setAction(ACTION_OPEN_TASK).putExtra(EXTRA_TASK_ID, taskId).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 }
 
@@ -61,14 +64,12 @@ class TaskReminderScheduler(private val context: Context, private val database: 
     private val settings = NotificationSettingsRepository(context)
     private fun name(id: Long) = "task_reminder_$id"
     suspend fun syncTask(task: Task) {
-        val reminders = database.taskReminderDao().getForTask(task.id)
-        val enabled = settings.settings.first().taskRemindersEnabled
-        reminders.forEach { reminder ->
-            workManager.cancelUniqueWork(name(reminder.id))
-            if (enabled && ReminderLogic.isSchedulable(task, reminder, LocalDateTime.now())) schedule(task, reminder)
-        }
+        NotificationReconciliation(context, database).reconcile()
     }
-    suspend fun cancelTask(taskId: Long) { database.taskReminderDao().getForTask(taskId).forEach { workManager.cancelUniqueWork(name(it.id)) } }
+    suspend fun cancelTask(taskId: Long) {
+        database.taskReminderDao().getForTask(taskId).forEach { workManager.cancelUniqueWork(name(it.id)) }
+        workManager.cancelAllWorkByTag("notice_task_$taskId").result.get()
+    }
     fun cancelReminder(id: Long) { workManager.cancelUniqueWork(name(id)) }
     private fun schedule(task: Task, reminder: TaskReminder) {
         val trigger = ReminderLogic.triggerAt(task, reminder) ?: return
@@ -77,13 +78,10 @@ class TaskReminderScheduler(private val context: Context, private val database: 
         val request = OneTimeWorkRequestBuilder<TaskReminderWorker>().setInitialDelay(delay, TimeUnit.MILLISECONDS).setInputData(Data.Builder().putLong("reminder", reminder.id).build()).build()
         workManager.enqueueUniqueWork(name(reminder.id), ExistingWorkPolicy.REPLACE, request)
     }
-    suspend fun syncAllPending() { database.taskDao().getPending().forEach { syncTask(it) } }
-    suspend fun cancelAllPending() { database.taskDao().getPending().forEach { cancelTask(it.id) } }
+    suspend fun syncAllPending() { NotificationReconciliation(context, database).reconcile() }
+    suspend fun cancelAllPending() { NotificationReconciliation(context, database).reconcile() }
     fun scheduleDailySummary(hour: Int, minute: Int) {
-        val now = LocalDateTime.now(); var target = now.toLocalDate().atTime(hour, minute); if (!target.isAfter(now)) target = target.plusDays(1)
-        val delay = Duration.between(now, target).toMinutes().coerceAtLeast(1)
-        val request = PeriodicWorkRequestBuilder<DailySummaryWorker>(24, TimeUnit.HOURS).setInitialDelay(delay, TimeUnit.MINUTES).build()
-        workManager.enqueueUniquePeriodicWork("daily_summary", ExistingPeriodicWorkPolicy.UPDATE, request)
+        NotificationReconciliation(context, database).requestReconciliation()
     }
     fun cancelDailySummary() { workManager.cancelUniqueWork("daily_summary") }
 }

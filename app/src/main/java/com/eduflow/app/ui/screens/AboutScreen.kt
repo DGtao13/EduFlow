@@ -14,19 +14,24 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Edit
 import androidx.navigation.NavController
 import com.eduflow.app.R
 import com.eduflow.app.ui.EduFlowChildTopAppBar
+import com.eduflow.app.ui.FeedbackChooser
 
 @Composable fun AboutScreen(navController: NavController) {
     val context = LocalContext.current
     val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
+    var feedbackOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Scaffold(topBar = { EduFlowChildTopAppBar(title = stringResource(R.string.about_eduflow), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             Image(
@@ -44,6 +49,10 @@ import com.eduflow.app.ui.EduFlowChildTopAppBar
             )
             Text(stringResource(R.string.about_description), Modifier.padding(top = 12.dp))
             Text(stringResource(R.string.local_first_privacy), Modifier.padding(top = 8.dp))
+            SettingsSection(stringResource(R.string.about_section)) {
+                SettingsRow(stringResource(R.string.feedback_action), stringResource(R.string.feedback_supporting), Icons.Default.Edit, onClick = { feedbackOpen = true })
+            }
         }
     }
+    if (feedbackOpen) FeedbackChooser { feedbackOpen = false }
 }

@@ -21,6 +21,7 @@ class ScheduleRepository(private val database: EduFlowDatabase) {
     }
 
     suspend fun materializeWeek(weekMonday: LocalDate): Long? {
+        com.eduflow.app.data.local.SchoolLessonSourceRepair.repair(database)
         val academicYear = AcademicYearSettingsRepository(EduFlowApplication.appContext).snapshot()
         return database.withTransaction {
         val configuration = database.cycleDao().getConfiguration() ?: return@withTransaction null
@@ -42,6 +43,11 @@ class ScheduleRepository(private val database: EduFlowDatabase) {
                     actualRoom = slot.roomOverride ?: subject?.defaultRoom
                 )
             lesson.requireKindInvariant()
+            // Do not manufacture another occurrence while an ambiguous historical orphan exists.
+            if (database.lessonInstanceDao().getForDate(actualDate).any {
+                it.kind == LessonKind.SCHOOL && it.sourceScheduleSlotId == null &&
+                    it.subjectId == slot.subjectId && it.actualStartTime == slot.startTime && it.actualEndTime == slot.endTime
+            }) return@forEach
             database.lessonInstanceDao().insertIfAbsent(lesson)
         }
         templateId

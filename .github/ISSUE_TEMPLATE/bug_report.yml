@@ -1,0 +1,51 @@
+name: Bug report
+description: Tell us about a reproducible problem in EduFlow.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Please remove personal school information from screenshots and logs. Do not attach backups, timetable exports, homework contents, private-lesson details, or student/school names."
+  - type: input
+    id: version
+    attributes:
+      label: EduFlow version
+      placeholder: "For example, 1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and model
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Screenshots or additional context (optional)
+      description: "Remove private information before sharing."

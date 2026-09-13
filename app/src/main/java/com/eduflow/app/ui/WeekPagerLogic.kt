@@ -34,6 +34,13 @@ fun weekdayToTimetableIndex(dayOfWeek: DayOfWeek): Int = when (dayOfWeek) {
     DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY -> 4
 }
 
+data class ScheduleDateSelection(val monday: LocalDate, val schoolWeekdayIndex: Int?)
+
+fun scheduleDateSelection(date: LocalDate): ScheduleDateSelection = ScheduleDateSelection(
+    monday = ScheduleCycle.mondayOf(date),
+    schoolWeekdayIndex = date.dayOfWeek.takeIf { it.value <= DayOfWeek.FRIDAY.value }?.let { it.value - 1 }
+)
+
 /** Explicit today navigation wins over a saved active-week position; otherwise restore it. */
 fun resolveActiveInnerOffset(savedOffset: Int?, explicitTodayOffset: Int?, freshTodayOffset: Int): Int =
     explicitTodayOffset ?: savedOffset ?: freshTodayOffset

@@ -45,8 +45,12 @@ class TaskIndicatorAggregationTest {
         createdAt = LocalDateTime.of(2026, 9, 1, 8, 0)
     )
 
+    private fun blockSlots(lessons: List<LessonInstance>) = slots.map { slot ->
+        if (lessons.any { it.sourceScheduleSlotId == slot.id }) slot.copy(logicalBlockId = "fixture-block") else slot
+    }
+
     private fun states(lessons: List<LessonInstance>, tasks: List<Task>) =
-        TaskIndicatorAggregation.statesByLessonId(lessons, slots, tasks)
+        TaskIndicatorAggregation.statesByLessonId(lessons, blockSlots(lessons), tasks)
 
     @Test fun onePendingTaskShowsCountOneForSingleSchoolLesson() {
         val target = lesson(1, 1)
@@ -141,7 +145,7 @@ class TaskIndicatorAggregationTest {
         val first = lesson(1, 1)
         val second = lesson(2, 2)
         val tasks = listOf(task(1, null, first.id), task(2, null, second.id, TaskStatus.COMPLETED))
-        val result = TaskIndicatorAggregation.assignedCountsByLessonId(listOf(first, second), slots, tasks)
+        val result = TaskIndicatorAggregation.assignedCountsByLessonId(listOf(first, second), blockSlots(listOf(first, second)), tasks)
         assertEquals(2, result[first.id])
         assertEquals(2, result[second.id])
         assertEquals(second.id, TaskIndicatorAggregation.owners(LessonBlock(listOf(first, second))).second)

@@ -17,8 +17,10 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +43,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -78,6 +82,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -121,6 +126,7 @@ import com.eduflow.app.ui.WeekPagerRange
 import com.eduflow.app.ui.desiredAdjacentInnerPosition
 import com.eduflow.app.ui.resolveActiveInnerOffset
 import com.eduflow.app.ui.settledWeekMonday
+import com.eduflow.app.ui.scheduleDateSelection
 import com.eduflow.app.ui.weekdayToTimetableIndex
 import com.eduflow.app.ui.cyclePreview
 import com.eduflow.app.ui.moveCycleEntry
@@ -146,9 +152,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private val eventTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val scheduleContentFrameInset = 6.dp
 
 @Composable
-fun ScheduleScreen(database: EduFlowDatabase, navController: NavController) {
+fun ScheduleScreen(database: EduFlowDatabase, navController: NavController, launchToday: Boolean = false) {
     val viewModel: ScheduleViewModel = viewModel(factory = DatabaseViewModelFactory(database))
     val monday by viewModel.weekMonday.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
@@ -160,25 +167,41 @@ fun ScheduleScreen(database: EduFlowDatabase, navController: NavController) {
     var cycleDialog by remember { mutableStateOf(false) }
     val cycleValid = configuration?.let { config -> entries.isNotEmpty() && entries.any { it.templateId == config.anchorTemplateId } } == true
 
-    Scaffold(topBar = {
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
         EduFlowRootTopAppBar(
             title = stringResource(R.string.schedule_title),
             actions = { IconButton(onClick = { navController.navigate("timetable_setup") }) { Icon(Icons.Default.Edit, stringResource(R.string.manage_timetable)) } }
         )
     }) { padding ->
-        Column(
-            Modifier.fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 12.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            when {
-                templates.isEmpty() -> {
-                    SetupState(stringResource(R.string.schedule_setup_message), stringResource(R.string.create_manually)) { navController.navigate("timetable_setup") }
-                    TextButton(onClick = { navController.navigate("backup") }) { Text(stringResource(R.string.import_program)) }
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val viewportHeight = maxHeight
+            Column(
+                Modifier.fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                when {
+                    templates.isEmpty() -> {
+                        Box(Modifier.padding(horizontal = 6.dp)) {
+                            SetupState(
+                                message = stringResource(R.string.schedule_setup_message),
+                                action = stringResource(R.string.create_manually),
+                                onAction = { navController.navigate("timetable_setup") },
+                                secondaryAction = { navController.navigate("backup") },
+                                secondaryActionLabel = stringResource(R.string.import_program)
+                            )
+                        }
+                    }
+                    !cycleValid -> Box(Modifier.padding(horizontal = 6.dp)) {
+                        SetupState(
+                            message = stringResource(R.string.cycle_setup_message),
+                            action = stringResource(R.string.configure_cycle),
+                            onAction = { cycleDialog = true }
+                        )
+                    }
+                    else -> SchedulePager(viewModel, academicYear, subjectMap, { cycleDialog = true }, navController, viewportHeight, launchToday)
                 }
-                !cycleValid -> SetupState(stringResource(R.string.cycle_setup_message), stringResource(R.string.configure_cycle)) { cycleDialog = true }
-                else -> SchedulePager(viewModel, academicYear, subjectMap, { cycleDialog = true }, navController)
             }
         }
     }
@@ -193,7 +216,9 @@ private fun SchedulePager(
     academicYear: com.eduflow.app.data.AcademicYearSettings,
     subjects: Map<Long, Subject>,
     onConfigureCycle: () -> Unit,
-    navController: NavController
+    navController: NavController,
+    viewportHeight: Dp,
+    launchToday: Boolean
 ) {
     val scheduleSlots by viewModel.scheduleSlots.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
@@ -222,6 +247,15 @@ private fun SchedulePager(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     var todayRequest by remember { mutableStateOf<TodayPositionRequest?>(null) }
+    var datePickerOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(launchToday) {
+        if (launchToday) {
+            val date = LocalDate.now()
+            todayRequest = TodayPositionRequest((todayRequest?.id ?: 0) + 1, date)
+            pagerState.scrollToPage(range.indexFor(date).coerceIn(0, range.pageCount - 1))
+        }
+    }
 
     fun targetOffsetFor(date: LocalDate): Int = with(density) {
         (timetableColumnWidth * weekdayToTimetableIndex(date.dayOfWeek)).toPx().roundToInt()
@@ -239,13 +273,15 @@ private fun SchedulePager(
     }
     val eventAreaHeight = remember(previousData.events, settledData.events, nextData.events) {
         val weeks = listOf(previousData, settledData, nextData)
-        (weeks.maxOfOrNull { data -> data.events.groupBy { it.date }.values.maxOfOrNull { it.size } ?: 0 } ?: 0) * 42
-    }.dp
+        timetableEventLaneHeight(
+            weeks.maxOfOrNull { data -> data.events.groupBy { it.date }.values.maxOfOrNull { it.size } ?: 0 } ?: 0
+        )
+    }
     val gridHeight = timetableHeaderHeight + eventAreaHeight + (timetableCellHeight * periodRows.size)
     val settledWeekRangeState = remember(settledMonday, academicYear) {
         classifySchoolWeek(settledMonday, academicYear.startDate, academicYear.endDate)
     }
-    val outsideSchoolAreaHeight = (132 + settledData.events.size * 48).dp
+    val outsideSchoolAreaHeight = maxOf((132 + settledData.events.size * 48).dp, viewportHeight)
     val schoolAreaHeight = if (settledWeekRangeState == SchoolWeekRangeState.ACTIVE_RANGE) gridHeight else outsideSchoolAreaHeight
 
     LaunchedEffect(pagerState, range) {
@@ -254,41 +290,60 @@ private fun SchedulePager(
             .collectLatest { page -> viewModel.showWeek(range.mondayFor(page)) }
     }
 
-    WeekNavigator(
-        monday = settledMonday,
-        onPrevious = { scope.launch { pagerState.animateScrollToPage((settledPage - 1).coerceAtLeast(0)) } },
-        onNext = { scope.launch { pagerState.animateScrollToPage((settledPage + 1).coerceAtMost(range.pageCount - 1)) } },
-        onToday = {
-            val date = LocalDate.now()
-            todayRequest = TodayPositionRequest((todayRequest?.id ?: 0) + 1, date)
-            scope.launch { pagerState.animateScrollToPage(range.indexFor(date).coerceIn(0, range.pageCount - 1)) }
-        },
-        onConfigureCycle = onConfigureCycle
-    )
+    Box(Modifier.padding(horizontal = 6.dp)) {
+        WeekNavigator(
+            monday = settledMonday,
+            onPrevious = { scope.launch { pagerState.animateScrollToPage((settledPage - 1).coerceAtLeast(0)) } },
+            onNext = { scope.launch { pagerState.animateScrollToPage((settledPage + 1).coerceAtMost(range.pageCount - 1)) } },
+            onToday = {
+                val date = LocalDate.now()
+                todayRequest = TodayPositionRequest((todayRequest?.id ?: 0) + 1, date)
+                scope.launch { pagerState.animateScrollToPage(range.indexFor(date).coerceIn(0, range.pageCount - 1)) }
+            },
+            onSelectDate = { datePickerOpen = true },
+            onConfigureCycle = onConfigureCycle
+        )
+    }
 
-    Row(Modifier.fillMaxWidth().height(schoolAreaHeight)) {
-        if (settledWeekRangeState == SchoolWeekRangeState.ACTIVE_RANGE) {
-            PeriodAxis(periodRows, eventAreaHeight)
-        }
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            beyondViewportPageCount = 1,
-            flingBehavior = PagerDefaults.flingBehavior(
+    if (datePickerOpen) {
+        val picker = rememberDatePickerState(initialSelectedDateMillis = settledMonday.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+        DatePickerDialog(
+            onDismissRequest = { datePickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    picker.selectedDateMillis?.let { millis ->
+                        val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                        val selection = scheduleDateSelection(date)
+                        todayRequest = selection.schoolWeekdayIndex?.let { TodayPositionRequest((todayRequest?.id ?: 0) + 1, date) }
+                        scope.launch { pagerState.animateScrollToPage(range.indexFor(selection.monday).coerceIn(0, range.pageCount - 1)) }
+                    }
+                    datePickerOpen = false
+                }) { Text(stringResource(R.string.save)) }
+            },
+            dismissButton = { TextButton(onClick = { datePickerOpen = false }) { Text(stringResource(R.string.cancel)) } }
+        ) { DatePicker(picker) }
+    }
+
+    HorizontalPager(
                 state = pagerState,
-                pagerSnapDistance = PagerSnapDistance.atMost(1),
-                // Foundation still commits any sufficiently fast fling. This lower bound only
-                // governs low-residual-velocity releases after inner-scroll handoff.
-                snapPositionalThreshold = 0.30f
-            ),
-            key = { range.mondayFor(it).toEpochDay() }
-        ) { page ->
-            val pageMonday = range.mondayFor(page)
-            val pageData by viewModel.weekData(pageMonday).collectAsState()
-            val weekRangeState = remember(pageMonday, academicYear) {
-                classifySchoolWeek(pageMonday, academicYear.startDate, academicYear.endDate)
-            }
-            if (weekRangeState == SchoolWeekRangeState.ACTIVE_RANGE) {
+                modifier = Modifier.fillMaxWidth().height(schoolAreaHeight),
+                beyondViewportPageCount = 1,
+                flingBehavior = PagerDefaults.flingBehavior(
+                    state = pagerState,
+                    pagerSnapDistance = PagerSnapDistance.atMost(1),
+                    // Foundation still commits any sufficiently fast fling. This lower bound only
+                    // governs low-residual-velocity releases after inner-scroll handoff.
+                    snapPositionalThreshold = 0.30f
+                ),
+                key = { range.mondayFor(it).toEpochDay() }
+            ) { page ->
+                val pageMonday = range.mondayFor(page)
+                val pageData by viewModel.weekData(pageMonday).collectAsState()
+                val weekRangeState = remember(pageMonday, academicYear) {
+                    classifySchoolWeek(pageMonday, academicYear.startDate, academicYear.endDate)
+                }
+                Box(Modifier.fillMaxSize().padding(horizontal = scheduleContentFrameInset)) {
+                if (weekRangeState == SchoolWeekRangeState.ACTIVE_RANGE) {
                 val savedOffset = if (pageMonday == selectedMonday) viewModel.savedInnerOffset(pageMonday) else null
                 val explicitTodayOffset = todayRequest
                     ?.takeIf { pageMonday == ScheduleCycle.mondayOf(it.date) }
@@ -327,53 +382,55 @@ private fun SchedulePager(
                         todayRequest = null
                     }
                 }
-                ActualWeekGrid(
-                    monday = pageMonday,
-                    lessons = pageData.lessons.filter { it.kind == LessonKind.SCHOOL && SchoolYear.containsSchoolDate(it.actualDate, academicYear) },
-                    events = pageData.events,
-                    exceptions = pageData.exceptions,
-                    subjects = subjects,
-                    scheduleSlots = scheduleSlots,
-                    taskIndicators = if (pageMonday == settledMonday) settledTaskIndicators else emptyMap(),
-                    assignedCounts = if (pageMonday == settledMonday) assignedCounts else emptyMap(),
-                    onOpenTaskSection = { id, section -> navController.navigate("lesson/$id?focus=$section") },
-                    onPrivateDay = { date -> scope.launch { privateAnchors[date]?.bringIntoView() } },
-                    privateLessonCounts = privateAgendaCounts(pageData.privateLessons),
-                    periodRows = periodRows,
-                    eventAreaHeight = eventAreaHeight,
-                    innerScrollState = innerScroll,
-                    onOpenLesson = { navController.navigate("lesson/$it") },
-                    onAddTask = { navController.navigate("task/new/$it") },
-                    onToggleLesson = viewModel::toggleCancellation,
-                    onSetBlockCancellation = viewModel::setBlockCancellation,
-                    onCancelBlock = viewModel::cancelLessons,
-                    onMarkNoSchool = viewModel::markNoSchool,
-                    onRestoreSchool = viewModel::restoreSchoolDay,
-                    onSaveEvent = viewModel::saveEvent,
-                    onDeleteEvent = viewModel::deleteEvent
-                )
-            } else {
-                LaunchedEffect(pageMonday, todayRequest?.id) {
-                    if (todayRequest?.let { ScheduleCycle.mondayOf(it.date) == pageMonday } == true) {
-                        todayRequest = null
+                    ActualWeekGrid(
+                        monday = pageMonday,
+                        lessons = pageData.lessons.filter { it.kind == LessonKind.SCHOOL && SchoolYear.containsSchoolDate(it.actualDate, academicYear) },
+                        events = pageData.events,
+                        exceptions = pageData.exceptions,
+                        subjects = subjects,
+                        scheduleSlots = scheduleSlots,
+                        taskIndicators = if (pageMonday == settledMonday) settledTaskIndicators else emptyMap(),
+                        assignedCounts = if (pageMonday == settledMonday) assignedCounts else emptyMap(),
+                        onOpenTaskSection = { id, section -> navController.navigate("lesson/$id?focus=$section") },
+                        onPrivateDay = { date -> scope.launch { privateAnchors[date]?.bringIntoView() } },
+                        privateLessonCounts = privateAgendaCounts(pageData.privateLessons),
+                        periodRows = periodRows,
+                        eventAreaHeight = eventAreaHeight,
+                        innerScrollState = innerScroll,
+                        onOpenLesson = { navController.navigate("lesson/$it") },
+                        onAddTask = { navController.navigate("task/new/$it") },
+                        onToggleLesson = viewModel::toggleCancellation,
+                        onSetBlockCancellation = viewModel::setBlockCancellation,
+                        onCancelBlock = viewModel::cancelLessons,
+                        onMarkNoSchool = viewModel::markNoSchool,
+                        onRestoreSchool = viewModel::restoreSchoolDay,
+                        onSaveEvent = viewModel::saveEvent,
+                        onDeleteEvent = viewModel::deleteEvent
+                    )
+                } else {
+                    LaunchedEffect(pageMonday, todayRequest?.id) {
+                        if (todayRequest?.let { ScheduleCycle.mondayOf(it.date) == pageMonday } == true) {
+                            todayRequest = null
+                        }
                     }
+                    OutsideAcademicWeekContent(
+                        state = weekRangeState,
+                        weekMonday = pageMonday,
+                        academicYear = academicYear,
+                        events = pageData.events,
+                        onSaveEvent = viewModel::saveEvent,
+                        onDeleteEvent = viewModel::deleteEvent
+                    )
                 }
-                OutsideAcademicWeekContent(
-                    state = weekRangeState,
-                    weekMonday = pageMonday,
-                    academicYear = academicYear,
-                    events = pageData.events,
-                    onSaveEvent = viewModel::saveEvent,
-                    onDeleteEvent = viewModel::deleteEvent
-                )
+                }
             }
-        }
-    }
 
     if (settledWeekRangeState == SchoolWeekRangeState.ACTIVE_RANGE && settledData.lessons.isEmpty() && settledData.events.isEmpty()) {
-        Text(stringResource(R.string.no_lessons_week), modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.no_lessons_week), modifier = Modifier.padding(horizontal = scheduleContentFrameInset, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    PrivateLessonsWeekSection(settledData.privateLessons, subjects, privateAnchors) { navController.navigate("lesson/$it") }
+    Box(Modifier.padding(horizontal = scheduleContentFrameInset)) {
+        PrivateLessonsWeekSection(settledData.privateLessons, subjects, privateAnchors) { navController.navigate("lesson/$it") }
+    }
 }
 
 @Composable
@@ -450,7 +507,7 @@ private fun OutsideAcademicWeekContent(
     val sortedEvents = remember(events) {
         events.sortedWith(compareBy<TimetableEvent> { it.date }.thenBy { it.startTime })
     }
-    Column(Modifier.fillMaxWidth().fillMaxHeight().padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().fillMaxHeight()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -497,8 +554,11 @@ private fun OutsideAcademicWeekContent(
             }
         }
 
-        Box {
-            TextButton(onClick = { addMenuOpen = true }) { Text(stringResource(R.string.add_timetable_event)) }
+        Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            OutlinedButton(onClick = { addMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text(stringResource(R.string.add_timetable_event), modifier = Modifier.padding(start = 6.dp))
+            }
             DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
                 weekDates.forEach { date ->
                     DropdownMenuItem(
@@ -528,36 +588,50 @@ private fun WeekNavigator(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onToday: () -> Unit,
+    onSelectDate: () -> Unit,
     onConfigureCycle: () -> Unit
 ) {
-    val friday = monday.plusDays(4)
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        TextButton(onClick = onPrevious) { Text("‹") }
+        IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, stringResource(R.string.previous_week), modifier = Modifier.size(30.dp)) }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(formatBulgarianWeekRange(monday), style = MaterialTheme.typography.titleMedium)
-            Row {
-                TextButton(onClick = onToday) { Text(stringResource(R.string.current_week)) }
-                TextButton(onClick = onConfigureCycle) { Text(stringResource(R.string.cycle)) }
+            TextButton(onClick = onSelectDate, modifier = Modifier.heightIn(min = 44.dp)) {
+                Text(formatBulgarianWeekRange(monday), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = onToday, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)) { Text(stringResource(R.string.current_week)) }
+                TextButton(onClick = onConfigureCycle, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text(stringResource(R.string.cycle), style = MaterialTheme.typography.labelMedium) }
             }
         }
-        TextButton(onClick = onNext) { Text("›") }
+        IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.next_week), modifier = Modifier.size(30.dp)) }
     }
 }
 
 @Composable
-private fun SetupState(message: String, action: String, onAction: () -> Unit) {
+private fun SetupState(message: String, action: String, onAction: () -> Unit, secondaryAction: (() -> Unit)? = null, secondaryActionLabel: String? = null) {
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
         Text(stringResource(R.string.schedule_setup_needed), style = MaterialTheme.typography.titleMedium)
-        Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+        Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp), color = com.eduflow.app.ui.theme.eduFlowColor(com.eduflow.app.ui.theme.EduFlowColorRole.NEUTRAL))
         Button(onClick = onAction, modifier = Modifier.padding(top = 14.dp)) { Text(action) }
+        if (secondaryAction != null && secondaryActionLabel != null) {
+            OutlinedButton(onClick = secondaryAction, modifier = Modifier.padding(top = 8.dp), colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = com.eduflow.app.ui.theme.eduFlowColor(com.eduflow.app.ui.theme.EduFlowColorRole.NEUTRAL), containerColor = com.eduflow.app.ui.theme.eduFlowColor(com.eduflow.app.ui.theme.EduFlowColorRole.SUPPORTING_BRAND))) { Text(secondaryActionLabel) }
+        }
     }
 }
 
 private val timetableColumnWidth = 196.dp
-private val periodAxisWidth = 62.dp
 private val timetableHeaderHeight = 72.dp
 private val timetableCellHeight = 86.dp
 private val timetableCellShape = RoundedCornerShape(8.dp)
+private val timetableEventCardHeight = 48.dp
+private val timetableEventLaneVerticalPadding = 2.dp
+private val timetableEventLaneSpacing = 2.dp
+
+private fun timetableEventLaneHeight(eventCount: Int): Dp = when {
+    eventCount <= 0 -> 0.dp
+    else -> timetableEventCardHeight * eventCount +
+        timetableEventLaneVerticalPadding * 2 +
+        timetableEventLaneSpacing * (eventCount - 1)
+}
 
 private data class TimetablePeriodRow(
     val displayNumber: Int,
@@ -627,23 +701,6 @@ private fun ActualWeekGrid(
 }
 
 @Composable
-private fun PeriodAxis(rows: List<TimetablePeriodRow>, eventAreaHeight: androidx.compose.ui.unit.Dp) {
-    Column(Modifier.width(periodAxisWidth)) {
-        Box(Modifier.height(timetableHeaderHeight + eventAreaHeight))
-        rows.forEach { row ->
-            Column(
-                Modifier.height(timetableCellHeight).padding(end = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(row.displayNumber.toString(), style = MaterialTheme.typography.titleSmall)
-                Text(row.startTime.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-@Composable
 private fun TimetableDayColumn(
     date: LocalDate,
     lessons: List<LessonInstance>,
@@ -675,7 +732,7 @@ private fun TimetableDayColumn(
     var quickActionLesson by remember(date) { mutableStateOf<LessonInstance?>(null) }
     var blockCancellationConfirmation by remember(date) { mutableStateOf<LessonBlock?>(null) }
     val isNoSchool = exception?.type == com.eduflow.app.data.local.DayExceptionType.NO_SCHOOL
-    val lessonsByStart = remember(lessons) { lessons.associateBy { it.actualStartTime } }
+    val lessonsByStart = remember(lessons, scheduleSlots) { LessonBlockResolver.scheduleMembersByStart(lessons, scheduleSlots) }
     val blocksByLessonId = remember(lessons, scheduleSlots) { LessonBlockResolver.resolveAll(lessons, scheduleSlots) }
 
     Column(Modifier.width(timetableColumnWidth)) {
@@ -694,6 +751,7 @@ private fun TimetableDayColumn(
                 EmptyTimetableCell()
             } else {
                 TimetableLessonCell(
+                    periodNumber = row.displayNumber,
                     lesson = lesson,
                     subject = subjects[lesson.subjectId],
                     block = blocksByLessonId[lesson.id] ?: LessonBlock(listOf(lesson)),
@@ -767,12 +825,14 @@ private fun TimetableDayHeader(
                 Box(
                     Modifier.size(48.dp).clickable(onClick = onPrivateDay)
                         .semantics { contentDescription = description }
-                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(20.dp))
-                        if (privateLessonCount > 1) Text(privateLessonCount.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(start = 2.dp))
+                    Surface(shape = RoundedCornerShape(7.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Row(Modifier.padding(horizontal = 4.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(16.dp))
+                            if (privateLessonCount > 1) Text(privateLessonCount.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(start = 2.dp))
+                        }
                     }
                 }
             }
@@ -793,10 +853,13 @@ private fun TimetableDayHeader(
 @Composable
 private fun DayEventsArea(events: List<TimetableEvent>, height: androidx.compose.ui.unit.Dp, onClick: (TimetableEvent) -> Unit) {
     if (height == 0.dp) return
-    Column(Modifier.height(height).padding(vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(
+        Modifier.height(height).padding(vertical = timetableEventLaneVerticalPadding),
+        verticalArrangement = Arrangement.spacedBy(timetableEventLaneSpacing)
+    ) {
         events.sortedWith(compareBy<TimetableEvent> { !it.isAllDay }.thenBy { it.startTime }).forEach { event ->
             Box(
-                Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 2.dp)
+                Modifier.fillMaxWidth().height(timetableEventCardHeight).padding(horizontal = 2.dp)
                     .background(MaterialTheme.colorScheme.tertiaryContainer, timetableCellShape)
                     .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = .45f), timetableCellShape)
                     .clickable { onClick(event) }
@@ -821,7 +884,7 @@ private fun EmptyTimetableCell() {
 }
 
 @Composable
-private fun TimetableLessonCell(lesson: LessonInstance, subject: Subject?, block: LessonBlock, noSchool: Boolean, taskIndicatorState: LessonTaskIndicatorState?, assignedCount: Int, onDue: () -> Unit, onAssigned: () -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun TimetableLessonCell(periodNumber: Int, lesson: LessonInstance, subject: Subject?, block: LessonBlock, noSchool: Boolean, taskIndicatorState: LessonTaskIndicatorState?, assignedCount: Int, onDue: () -> Unit, onAssigned: () -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cancelled = lesson.cancellationState == CancellationState.CANCELLED
     val schoolClosed = noSchool && lesson.kind == LessonKind.SCHOOL
     val green = !cancelled && !schoolClosed && lesson.kind == LessonKind.SCHOOL && isGreenLesson(lesson)
@@ -858,7 +921,7 @@ private fun TimetableLessonCell(lesson: LessonInstance, subject: Subject?, block
         val hasIndicator = taskIndicatorState != null && taskIndicatorState != LessonTaskIndicatorState.None
         Box(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(end = if (badgeOwner && hasIndicator && assignedOwner) 78.dp else if (badgeOwner && hasIndicator || assignedOwner) 40.dp else 0.dp)) {
-                Text(subject?.shortName ?: subject?.name ?: stringResource(R.string.lesson), color = contentColor, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("$periodNumber · ${subject?.shortName ?: subject?.name ?: stringResource(R.string.lesson)}", color = contentColor, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${lesson.actualStartTime}–${lesson.actualEndTime}", color = contentColor.copy(alpha = .94f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 lesson.actualRoom?.let { Text(compactRoom(it), color = contentColor.copy(alpha = .9f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 when {
@@ -981,7 +1044,7 @@ private fun BlockCancellationDialog(block: LessonBlock, subject: Subject?, onDis
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.cancel_whole_block)) },
         text = { Text(stringResource(R.string.cancel_whole_block_question, subject?.shortName ?: subject?.name ?: stringResource(R.string.lesson), block.startTime.toString(), block.endTime.toString())) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.cancel_whole_block)) } },
+        confirmButton = { DestructiveConfirmationButton(stringResource(R.string.cancel_whole_block), onConfirm) },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
@@ -996,7 +1059,7 @@ private fun isGreenLesson(lesson: LessonInstance): Boolean {
 @Composable
 private fun LessonActionDialog(lesson: LessonInstance, onDismiss: () -> Unit, onToggle: () -> Unit) {
     val cancelled = lesson.cancellationState == CancellationState.CANCELLED
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(if (cancelled) R.string.restore_lesson_question else R.string.cancel_lesson_question)) }, text = { Text(stringResource(if (cancelled) R.string.restore_lesson_message else R.string.cancel_lesson_message)) }, confirmButton = { TextButton(onClick = onToggle) { Text(stringResource(if (cancelled) R.string.restore else R.string.cancel_lesson)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(if (cancelled) R.string.restore_lesson_question else R.string.cancel_lesson_question)) }, text = { Text(stringResource(if (cancelled) R.string.restore_lesson_message else R.string.cancel_lesson_message)) }, confirmButton = { if (cancelled) TextButton(onClick = onToggle) { Text(stringResource(R.string.restore)) } else DestructiveConfirmationButton(stringResource(R.string.cancel_lesson), onToggle) }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } })
 }
 
 @Composable
@@ -1011,13 +1074,24 @@ private fun CancelBlockDialog(lessons: List<LessonInstance>, onDismiss: () -> Un
                 }
             }
         }
-    }, confirmButton = { TextButton(onClick = { onConfirm(lessons.filter { it.id in selectedIds }) }, enabled = selectedIds.isNotEmpty()) { Text(stringResource(R.string.cancel_selected)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } })
+    }, confirmButton = { DestructiveConfirmationButton(stringResource(R.string.cancel_selected), { onConfirm(lessons.filter { it.id in selectedIds }) }, enabled = selectedIds.isNotEmpty()) }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } })
 }
 
 @Composable
 private fun NoSchoolDialog(onDismiss: () -> Unit, onConfirm: (String?) -> Unit) {
     var reason by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.mark_no_school_title)) }, text = { OutlinedTextField(reason, { reason = it }, label = { Text(stringResource(R.string.reason_optional)) }, singleLine = true) }, confirmButton = { TextButton(onClick = { onConfirm(reason.trim().ifBlank { null }) }) { Text(stringResource(R.string.mark_no_school)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
+}
+
+@Composable
+fun QuickAddEventScreen(database: EduFlowDatabase, navController: NavController) {
+    val viewModel: ScheduleViewModel = viewModel(factory = com.eduflow.app.ui.viewmodel.DatabaseViewModelFactory(database))
+    EventEditorDialog(
+        event = TimetableEvent(date = LocalDate.now(), title = ""),
+        onDismiss = { navController.popBackStack() },
+        onSave = { viewModel.saveEvent(it); navController.navigate("schedule") { popUpTo("schedule") { inclusive = false }; launchSingleTop = true } },
+        onDelete = { navController.popBackStack() }
+    )
 }
 
 @Composable
@@ -1031,7 +1105,11 @@ private fun EventEditorDialog(event: TimetableEvent, onDismiss: () -> Unit, onSa
     val titleRequired = stringResource(R.string.title_required)
     val timeFormatError = stringResource(R.string.use_time_format)
     val endAfterStart = stringResource(R.string.end_after_start)
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(if (event.id == 0L) R.string.add_event else R.string.edit_event)) }, text = {
+    val draft = event.copy(title = title.trim(), description = description.trim().ifBlank { null }, isAllDay = allDay,
+        startTime = if (allDay) null else runCatching { LocalTime.parse(start, eventTimeFormatter) }.getOrNull(),
+        endTime = if (allDay) null else runCatching { LocalTime.parse(end, eventTimeFormatter) }.getOrNull())
+    val leave = protectedEditorExit(draft != event || (!allDay && ((start.isNotBlank() && draft.startTime == null) || (end.isNotBlank() && draft.endTime == null))), onDismiss)
+    AlertDialog(onDismissRequest = leave, title = { Text(stringResource(if (event.id == 0L) R.string.add_event else R.string.edit_event)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedTextField(title, { title = it }, label = { Text(stringResource(R.string.event_title)) }, singleLine = true, isError = error != null)
             OutlinedTextField(description, { description = it }, label = { Text(stringResource(R.string.description_optional)) }, singleLine = true)
@@ -1047,7 +1125,7 @@ private fun EventEditorDialog(event: TimetableEvent, onDismiss: () -> Unit, onSa
         val parsedEnd = if (allDay || end.isBlank()) null else runCatching { LocalTime.parse(end, eventTimeFormatter) }.getOrNull()
         error = when { title.isBlank() -> titleRequired; (!allDay && start.isNotBlank() && parsedStart == null) || (!allDay && end.isNotBlank() && parsedEnd == null) -> timeFormatError; parsedStart != null && parsedEnd != null && !parsedEnd.isAfter(parsedStart) -> endAfterStart; else -> null }
         if (error == null) onSave(event.copy(title = title.trim(), description = description.trim().ifBlank { null }, startTime = parsedStart, endTime = parsedEnd, isAllDay = allDay))
-    }) { Text(stringResource(R.string.save)) } }, dismissButton = { Row { if (event.id != 0L) TextButton(onClick = onDelete) { Text(stringResource(R.string.delete)) }; TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } } })
+    }) { Text(stringResource(R.string.save)) } }, dismissButton = { Row { if (event.id != 0L) DestructiveConfirmationButton(stringResource(R.string.delete), onDelete); TextButton(onClick = leave) { Text(stringResource(R.string.cancel)) } } })
 }
 
 @Composable

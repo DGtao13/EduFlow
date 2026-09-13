@@ -22,6 +22,7 @@ class AppResetRepository(private val context: Context, private val database: Edu
     suspend fun reset() = withContext(Dispatchers.IO) {
         AppDataSession.runtimeMutex.withLock {
             NotificationSettingsRepository(context).clear()
+            TaskDuePresetRepository(context).clear()
             WorkManager.getInstance(context).cancelAllWork().result.get()
             database.withTransaction {
                 database.taskReminderDao().clear()

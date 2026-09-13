@@ -53,7 +53,9 @@ data class ScheduleSlot(
     val subjectId: Long?,
     val teacherOverride: String? = null,
     val roomOverride: String? = null,
-    val groupInfo: String? = null
+    val groupInfo: String? = null,
+    /** Explicit shared identity for adjacent logical blocks whose subjects may differ. */
+    val logicalBlockId: String? = null
 )
 
 @Entity(

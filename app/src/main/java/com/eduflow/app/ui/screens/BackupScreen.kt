@@ -17,9 +17,11 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -104,10 +106,10 @@ fun BackupScreen(navController: NavController) {
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
             Text(stringResource(R.string.backup_explanation), modifier = Modifier.padding(top = 12.dp))
             SettingsSection(stringResource(R.string.data_section)) { Column {
-                SettingsRow(stringResource(R.string.create_backup), stringResource(R.string.create_backup_supporting), Icons.Default.Add, onClick = { if (!busy) showExportTypes = true })
+                SettingsRow(stringResource(R.string.create_backup), stringResource(R.string.create_backup_supporting), Icons.Default.Settings, onClick = { if (!busy) showExportTypes = true })
                 SettingsRow(stringResource(R.string.package_import), stringResource(R.string.restore_backup_supporting), Icons.Default.Edit, onClick = { if (!busy) restore.launch("application/*") })
-                SettingsRow(stringResource(R.string.export_data), stringResource(R.string.export_data_supporting), Icons.Default.MoreVert, onClick = { if (!busy) export.launch("EduFlow-export-${LocalDate.now()}.zip") })
-                SettingsRow(stringResource(R.string.reset_app), stringResource(R.string.reset_warning), Icons.Default.MoreVert, onClick = { if (!busy) confirmReset = true })
+                SettingsRow(stringResource(R.string.export_data), stringResource(R.string.export_data_supporting), Icons.AutoMirrored.Filled.List, onClick = { if (!busy) export.launch("EduFlow-export-${LocalDate.now()}.zip") })
+                SettingsRow(stringResource(R.string.reset_app), stringResource(R.string.reset_warning), Icons.Default.Delete, destructive = true, onClick = { if (!busy) confirmReset = true })
             } }
             if (busy) { CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp)); Text(stringResource(R.string.working), modifier = Modifier.padding(top = 8.dp)) }
             message?.let { Text(it, modifier = Modifier.padding(top = 12.dp)) }
@@ -180,9 +182,9 @@ fun BackupScreen(navController: NavController) {
     }
     if (confirmReset) AlertDialog(
         onDismissRequest = { if (!busy) confirmReset = false },
-        title = { Text(stringResource(R.string.reset_app)) },
+        title = { Text(stringResource(R.string.reset_app), color = MaterialTheme.colorScheme.error) },
         text = { Text(stringResource(R.string.reset_warning)) },
-        confirmButton = { TextButton(enabled = !busy, onClick = { scope.launch {
+        confirmButton = { Button(enabled = !busy, colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), onClick = { scope.launch {
             busy = true
             try { AppResetRepository(context).reset() } catch (e: Exception) { message = failure(e) }
             finally { busy = false; confirmReset = false }

@@ -11,7 +11,7 @@ import java.time.LocalTime
 
 class TaskDuePresentationTest {
     private val day = LocalDate.of(2026, 9, 21)
-    private fun slot(id: Long, index: Int) = ScheduleSlot(id, 1, 1, index, LocalTime.of(8 + index, 0), LocalTime.of(8 + index, 45), subjectId = 1)
+    private fun slot(id: Long, index: Int, block: String? = null) = ScheduleSlot(id, 1, 1, index, LocalTime.of(8 + index, 0), LocalTime.of(8 + index, 45), subjectId = 1, logicalBlockId = block)
     private fun lesson(id: Long, index: Int, subjectId: Long? = 1) = LessonInstance(
         id = id,
         actualDate = day,
@@ -26,7 +26,7 @@ class TaskDuePresentationTest {
         val first = lesson(1, 1)
         val second = lesson(2, 2)
 
-        val ranges = TaskDuePresentation.rangesByLessonId(listOf(first, second), listOf(slot(1, 1), slot(2, 2)))
+        val ranges = TaskDuePresentation.rangesByLessonId(listOf(first, second), listOf(slot(1, 1, "x"), slot(2, 2, "x")))
 
         assertEquals(TaskDueTimeRange(LocalTime.of(9, 0), LocalTime.of(10, 45)), ranges[first.id])
         assertEquals(ranges[first.id], ranges[second.id])

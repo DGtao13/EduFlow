@@ -17,11 +17,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
@@ -29,11 +30,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -54,6 +58,8 @@ import com.eduflow.app.R
 import com.eduflow.app.ui.EduFlowChildTopAppBar
 import com.eduflow.app.ui.isValidPrivateLessonTimeRange
 import com.eduflow.app.ui.oneOffDefaultDate
+import com.eduflow.app.ui.PrivateLessonFormValues
+import com.eduflow.app.ui.newOneOffPrivateLesson
 import com.eduflow.app.data.TaskLogic
 import com.eduflow.app.data.SchoolYear
 import com.eduflow.app.data.local.EduFlowDatabase
@@ -90,7 +96,7 @@ fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController
     var deleting by remember { mutableStateOf<RecurringPrivateLesson?>(null) }
     val subjectMap = subjects.associateBy { it.id }
     Scaffold(
-        topBar = { EduFlowChildTopAppBar(title = stringResource(R.string.private_lessons), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) },
+        topBar = { EduFlowChildTopAppBar(title = stringResource(R.string.recurring_private_lessons), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
@@ -98,12 +104,12 @@ fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController
                     Icon(Icons.Default.Add, contentDescription = null)
                     Text(stringResource(R.string.add_private_lesson), modifier = Modifier.padding(start = 8.dp))
                 }
-                TextButton(onClick = { navController.navigate("private/new") }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { navController.navigate("private/new") }, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.add_recurring_private_lesson))
                 }
             }
             if (lessons.isEmpty()) {
-                item { Text(stringResource(R.string.no_private_lessons), modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { Text(stringResource(R.string.no_recurring_private_lessons), modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             items(lessons, key = { it.id }) { lesson ->
                 Row(Modifier.fillMaxWidth().clickable { navController.navigate("private/${lesson.id}") }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -117,34 +123,46 @@ fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController
             }
         }
     }
-    deleting?.let { lesson -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text(stringResource(R.string.delete_private_lesson)) }, text = { Text(stringResource(R.string.private_delete_message)) }, confirmButton = { TextButton(onClick = { vm.delete(lesson); deleting = null }) { Text(stringResource(R.string.delete)) } }, dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } }) }
+    deleting?.let { lesson -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text(stringResource(R.string.delete_private_lesson)) }, text = { Text(stringResource(R.string.private_delete_message)) }, confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete), onClick = { vm.delete(lesson); deleting = null }) }, dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } }) }
 }
 
 @Composable
-fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Boolean, navController: NavController) {
-    val vm: PrivateLessonEditorViewModel = viewModel(factory = PrivateLessonEditorFactory(database, id))
-    val existing by vm.lesson.collectAsState(); val subjects by vm.subjects.collectAsState()
-    val base = existing
-    var subjectId by remember(base?.id) { mutableStateOf(base?.subjectId) }
-    val initialRecurringStartDate = base?.startDate ?: LocalDate.now()
-    var privateName by remember(base?.id, oneOff) { mutableStateOf(if (oneOff) "" else base?.privateLessonName.orEmpty()) }
-    var nameAutoDerived by remember(base?.id, oneOff) { mutableStateOf(!oneOff && base?.privateLessonName.isNullOrBlank()) }
-    var weekday by remember(base?.id) { mutableStateOf(base?.weekday ?: initialRecurringStartDate.dayOfWeek.value) }
-    var start by remember(base?.id, oneOff) { mutableStateOf(if (oneOff) "" else base?.startTime?.format(privateTimeFormat) ?: LocalTime.of(defaultOneOffStartHour, 0).format(privateTimeFormat)) }
-    var end by remember(base?.id, oneOff) { mutableStateOf(if (oneOff) "" else base?.endTime?.format(privateTimeFormat) ?: LocalTime.of(defaultOneOffEndHour, 0).format(privateTimeFormat)) }
-    var startDate by remember(base?.id) { mutableStateOf(initialRecurringStartDate) }
-    var oneOffDate by remember(base?.id, oneOff) { mutableStateOf(oneOffDefaultDate(null, LocalDate.now())) }
-    var endDate by remember(base?.id) { mutableStateOf(base?.endDate) }
-    var interval by remember(base?.id) { mutableStateOf(base?.intervalWeeks ?: 1) }
-    var teacher by remember(base?.id) { mutableStateOf(base?.teacherOverride.orEmpty()) }
-    var locationKind by remember(base?.id, oneOff) { mutableStateOf(if (oneOff) PrivateLessonLocationKind.UNSPECIFIED else base?.privateLocationKind ?: PrivateLessonLocationKind.UNSPECIFIED) }
-    var locationText by remember(base?.id, oneOff) { mutableStateOf(if (oneOff) "" else base?.roomOverride.orEmpty()) }
-    var enabled by remember(base?.id) { mutableStateOf(base?.enabled ?: true) }
+fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Boolean, navController: NavController, similarFromId: Long? = null) {
+    val vm: PrivateLessonEditorViewModel = viewModel(factory = PrivateLessonEditorFactory(database, id, oneOff))
+    val existingRecurring by vm.lesson.collectAsState(); val existingOneOff by vm.oneOffLesson.collectAsState(); val subjects by vm.subjects.collectAsState()
+    if (id != null && (if (oneOff) existingOneOff == null else existingRecurring == null)) {
+        androidx.compose.material3.CircularProgressIndicator(); return
+    }
+    val editingOneOff = oneOff && id != null && similarFromId == null
+    val recurringBase = existingRecurring
+    val oneOffBase = existingOneOff
+    val baseId = if (oneOff) oneOffBase?.id else recurringBase?.id
+    val initialRecurringStartDate = recurringBase?.startDate ?: LocalDate.now()
+    var subjectId by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.subjectId else recurringBase?.subjectId) }
+    var privateName by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.privateLessonName.orEmpty() else recurringBase?.privateLessonName.orEmpty()) }
+    var nameAutoDerived by remember(baseId, oneOff) { mutableStateOf(!oneOff && recurringBase?.privateLessonName.isNullOrBlank()) }
+    var weekday by remember(baseId) { mutableStateOf(recurringBase?.weekday ?: initialRecurringStartDate.dayOfWeek.value) }
+    var start by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.let { if (editingOneOff) it.actualStartTime.format(privateTimeFormat) else "" } ?: "" else recurringBase?.startTime?.format(privateTimeFormat) ?: LocalTime.of(defaultOneOffStartHour, 0).format(privateTimeFormat)) }
+    var end by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.let { if (editingOneOff) it.actualEndTime.format(privateTimeFormat) else "" } ?: "" else recurringBase?.endTime?.format(privateTimeFormat) ?: LocalTime.of(defaultOneOffEndHour, 0).format(privateTimeFormat)) }
+    var startDate by remember(baseId) { mutableStateOf(initialRecurringStartDate) }
+    var oneOffDate by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (editingOneOff) oneOffBase?.actualDate ?: oneOffDefaultDate(null, LocalDate.now()) else oneOffDefaultDate(null, LocalDate.now())) }
+    var endDate by remember(baseId) { mutableStateOf(recurringBase?.endDate) }
+    var interval by remember(baseId) { mutableStateOf(recurringBase?.intervalWeeks ?: 1) }
+    var teacher by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.actualTeacher.orEmpty() else recurringBase?.teacherOverride.orEmpty()) }
+    var locationKind by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.privateLocationKind ?: PrivateLessonLocationKind.UNSPECIFIED else recurringBase?.privateLocationKind ?: PrivateLessonLocationKind.UNSPECIFIED) }
+    var locationText by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.actualRoom.orEmpty() else recurringBase?.roomOverride.orEmpty()) }
+    var enabled by remember(baseId) { mutableStateOf(recurringBase?.enabled ?: true) }
     var error by remember { mutableStateOf<String?>(null) }
     var selector by remember { mutableStateOf<PrivateLessonSelector?>(null) }
     var subjectSearch by remember { mutableStateOf("") }
     var datePickerTarget by remember { mutableStateOf<PrivateDatePickerTarget?>(null) }
-    Scaffold(topBar = { EduFlowChildTopAppBar(title = stringResource(if (oneOff) R.string.add_one_off_lesson else if (id == null) R.string.add_recurring_private_lesson else R.string.edit_private_lesson), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
+    val draftValues = listOf(subjectId, privateName.trim(), start, end, teacher.trim().ifBlank { null }, locationKind,
+        locationText.trim().ifBlank { null }.takeIf { locationKind != PrivateLessonLocationKind.UNSPECIFIED }) +
+        if (oneOff) listOf(oneOffDate) else listOf(weekday, startDate, endDate, interval, enabled)
+    val originalDraft = remember(baseId, oneOff, similarFromId) { draftValues }
+    val leave = protectedEditorExit(draftValues != originalDraft) { navController.popBackStack() }
+    com.eduflow.app.ui.EditorBackHandler(leave)
+    Scaffold(topBar = { EduFlowChildTopAppBar(title = stringResource(if (editingOneOff) R.string.edit_private_lesson else if (similarFromId != null) R.string.add_similar_private_lesson else if (oneOff) R.string.add_one_off_lesson else if (id == null) R.string.add_recurring_private_lesson else R.string.edit_private_lesson), navigationIcon = { IconButton(onClick = leave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (oneOff) {
                 OutlinedTextField(privateName, { privateName = it; nameAutoDerived = false }, label = { Text(stringResource(R.string.private_lesson_name)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -177,8 +195,9 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
             error?.let { Text(stringResource(when (it) { "NAME" -> R.string.private_lesson_name_required; "SUBJECT" -> R.string.choose_subject; "TIME_ORDER" -> R.string.private_time_order_invalid; else -> R.string.private_invalid }), color = MaterialTheme.colorScheme.error) }
             Button(onClick = {
                 val parsedStart = runCatching { LocalTime.parse(start, privateTimeFormat) }.getOrNull(); val parsedEnd = runCatching { LocalTime.parse(end, privateTimeFormat) }.getOrNull()
-                if (privateName.isBlank()) error = "NAME" else if (parsedStart == null || parsedEnd == null) error = "INVALID" else if (!isValidPrivateLessonTimeRange(parsedStart, parsedEnd)) error = "TIME_ORDER" else if (oneOff) vm.createOneOff(LessonInstance(actualDate = oneOffDate, actualStartTime = parsedStart, actualEndTime = parsedEnd, subjectId = subjectId, kind = LessonKind.PRIVATE, actualTeacher = teacher.trim().ifBlank { null }, actualRoom = if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, privateLessonName = privateName.trim(), privateLocationKind = locationKind)) { navController.popBackStack() } else {
-                    if (endDate != null && endDate!!.isBefore(startDate)) error = "INVALID" else vm.save(RecurringPrivateLesson(id = base?.id ?: 0, subjectId = subjectId, weekday = weekday, startTime = parsedStart, endTime = parsedEnd, startDate = startDate, endDate = endDate, intervalWeeks = interval, teacherOverride = teacher.trim().ifBlank { null }, roomOverride = if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, privateLessonName = privateName.trim(), enabled = enabled, privateLocationKind = locationKind)) { navController.popBackStack() }
+                val values = parsedStart?.let { startTime -> parsedEnd?.let { endTime -> PrivateLessonFormValues(oneOffDate, startTime, endTime, subjectId, privateName.trim(), teacher.trim().ifBlank { null }, if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, locationKind) } }
+                if (privateName.isBlank()) error = "NAME" else if (parsedStart == null || parsedEnd == null) error = "INVALID" else if (!isValidPrivateLessonTimeRange(parsedStart, parsedEnd)) error = "TIME_ORDER" else if (oneOff && editingOneOff) vm.updateOneOff(values!!) { navController.popBackStack() } else if (oneOff) vm.createOneOff(newOneOffPrivateLesson(values!!)) { navController.popBackStack() } else {
+                    if (endDate != null && endDate!!.isBefore(startDate)) error = "INVALID" else vm.save(RecurringPrivateLesson(id = recurringBase?.id ?: 0, subjectId = subjectId, weekday = weekday, startTime = parsedStart, endTime = parsedEnd, startDate = startDate, endDate = endDate, intervalWeeks = interval, teacherOverride = teacher.trim().ifBlank { null }, roomOverride = if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, privateLessonName = privateName.trim(), enabled = enabled, privateLocationKind = locationKind)) { navController.popBackStack() }
                 }
             }) { Text(stringResource(R.string.save)) }
         }
@@ -234,11 +253,17 @@ fun SubjectDetailsScreen(database: EduFlowDatabase, subjectId: Long, navControll
     Scaffold(topBar = { EduFlowChildTopAppBar(title = item.name, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Row(verticalAlignment = Alignment.CenterVertically) { androidx.compose.foundation.layout.Box(Modifier.padding(end = 8.dp).then(Modifier)) { Text("●", color = Color(item.color)) }; Column { item.shortName?.let { Text(it, style = MaterialTheme.typography.titleMedium) }; listOfNotNull(item.defaultTeacher, item.defaultRoom).joinToString(" · ").takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
-            item { Row { FilterChip(tab == 0, { tab = 0 }, { Text(stringResource(R.string.overview)) }); FilterChip(tab == 1, { tab = 1 }, { Text(stringResource(R.string.lessons_history)) }); FilterChip(tab == 2, { tab = 2 }, { Text(stringResource(R.string.nav_tasks)) }) } }
+            item {
+                TabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.overview), maxLines = 1) })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.history_tab), maxLines = 1) })
+                    Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text(stringResource(R.string.nav_tasks), maxLines = 1) })
+                }
+            }
             when (tab) {
                 0 -> { item { Text(stringResource(R.string.next_lesson), style = MaterialTheme.typography.titleMedium) }; upcoming.firstOrNull()?.let { lesson -> item { LessonHistoryRow(lesson) { navController.navigate("lesson/${lesson.id}") } } } ?: item { Text(stringResource(R.string.no_upcoming_lessons)) }; item { Text(stringResource(R.string.pending_tasks), style = MaterialTheme.typography.titleMedium); Text(tasks.count { it.status == TaskStatus.PENDING }.toString()) }; item { Text(stringResource(R.string.lessons_history), style = MaterialTheme.typography.titleMedium) }; items(history.take(3), key = { it.id }) { lesson -> LessonHistoryRow(lesson) { navController.navigate("lesson/${lesson.id}") } } }
                 1 -> { if (history.isEmpty()) item { Text(stringResource(R.string.no_lesson_history)) } else items(history, key = { it.id }) { lesson -> LessonHistoryRow(lesson) { navController.navigate("lesson/${lesson.id}") } } }
-                else -> { item { TextButton(onClick = { navController.navigate("task/new/subject_$subjectId") }) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.add_task)) } }; val pending = TaskLogic.sortedPending(tasks.filter { it.status == TaskStatus.PENDING }, java.time.LocalDateTime.now()); items(pending, key = { it.id }) { task -> SubjectTaskRow(task, vm::toggleTask) { navController.navigate("task/${task.id}/none") } }; val completed = tasks.filter { it.status == TaskStatus.COMPLETED }.sortedByDescending { it.completedAt }; if (completed.isNotEmpty()) { item { Text(stringResource(R.string.completed_tasks), style = MaterialTheme.typography.titleMedium) }; items(completed, key = { it.id }) { task -> SubjectTaskRow(task, vm::toggleTask) { navController.navigate("task/${task.id}/none") } } } }
+                else -> { item { OutlinedButton(onClick = { navController.navigate("task/new/subject_$subjectId") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.add_task), Modifier.padding(start = 6.dp)) } }; val pending = TaskLogic.sortedPending(tasks.filter { it.status == TaskStatus.PENDING }, java.time.LocalDateTime.now()); items(pending, key = { it.id }) { task -> SubjectTaskRow(task, vm::toggleTask) { navController.navigate("task/${task.id}/none") } }; val completed = tasks.filter { it.status == TaskStatus.COMPLETED }.sortedByDescending { it.completedAt }; if (completed.isNotEmpty()) { item { Text(stringResource(R.string.completed_tasks), style = MaterialTheme.typography.titleMedium) }; items(completed, key = { it.id }) { task -> SubjectTaskRow(task, vm::toggleTask) { navController.navigate("task/${task.id}/none") } } } }
             }
         }
     }

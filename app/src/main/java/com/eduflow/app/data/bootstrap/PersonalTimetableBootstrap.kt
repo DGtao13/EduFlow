@@ -8,6 +8,7 @@ import com.eduflow.app.data.local.DayException
 import com.eduflow.app.data.local.DayExceptionType
 import com.eduflow.app.data.local.EduFlowDatabase
 import com.eduflow.app.data.local.ScheduleSlot
+import com.eduflow.app.data.local.SchoolBlockNormalization
 import com.eduflow.app.data.local.ScheduleTemplate
 import com.eduflow.app.data.local.Subject
 import java.time.LocalDate
@@ -149,6 +150,7 @@ class PersonalTimetableBootstrap(private val database: EduFlowDatabase) {
 
         insertSlots(weekATemplate.id, PersonalTimetableData.weekA, subjectIds)
         insertSlots(weekBTemplate.id, PersonalTimetableData.weekB, subjectIds)
+        SchoolBlockNormalization.normalizeLegacySlots(database)
 
         database.cycleDao().saveConfiguration(CycleConfiguration(anchorMonday = LocalDate.of(2026, 9, 21), anchorTemplateId = weekATemplate.id))
         database.cycleDao().clearEntries()

@@ -3,6 +3,7 @@ package com.eduflow.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.eduflow.app.data.local.EduFlowDatabase
 import com.eduflow.app.EduFlowApplication
 import com.eduflow.app.data.local.ScheduleSlot
@@ -17,6 +18,7 @@ import com.eduflow.app.data.WeekMaterializer
 import com.eduflow.app.data.SchoolLessonCancellationRepository
 import com.eduflow.app.data.AcademicYearSettings
 import com.eduflow.app.data.AcademicYearSettingsRepository
+import com.eduflow.app.data.local.SchoolBlockNormalization
 import com.eduflow.app.domain.ScheduleCycle
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +40,12 @@ class SubjectViewModel(private val database: EduFlowDatabase) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun save(subject: Subject) = viewModelScope.launch { database.subjectDao().upsert(subject) }
-    fun delete(subject: Subject) = viewModelScope.launch { database.subjectDao().delete(subject) }
+    /** A subject that still defines timetable slots must be edited out of the program first.
+     * Other links are nullable foreign keys and detach without deleting history or private lessons. */
+    fun delete(subject: Subject, onBlocked: () -> Unit, onDeleted: () -> Unit) = viewModelScope.launch {
+        if (database.scheduleSlotDao().countForSubject(subject.id) > 0) onBlocked()
+        else { database.subjectDao().delete(subject); onDeleted() }
+    }
 }
 
 class TimetableViewModel(private val database: EduFlowDatabase) : ViewModel() {
@@ -57,14 +64,31 @@ class TimetableViewModel(private val database: EduFlowDatabase) : ViewModel() {
         database.scheduleTemplateDao().delete(template)
     }
 
-    fun saveSlot(slot: ScheduleSlot) = viewModelScope.launch { database.scheduleSlotDao().upsert(slot) }
-    fun deleteSlot(slot: ScheduleSlot) = viewModelScope.launch { database.scheduleSlotDao().delete(slot) }
+    fun saveSlot(slot: ScheduleSlot, previousSlot: ScheduleSlot? = null) = viewModelScope.launch {
+        database.withTransaction {
+            val previous = previousSlot?.let { source -> database.scheduleSlotDao().getForTemplate(slot.scheduleTemplateId).firstOrNull { it.id == source.id } }
+            val blockId = if (slot.logicalBlockId != null && previous != null) {
+                previous.logicalBlockId?.trim()?.takeIf { it.isNotEmpty() } ?: "slot-block-${previous.id}"
+            } else slot.logicalBlockId
+            database.scheduleSlotDao().upsert(slot.copy(logicalBlockId = blockId))
+            if (blockId != null && previous != null && previous.logicalBlockId != blockId) {
+                database.scheduleSlotDao().update(previous.copy(logicalBlockId = blockId))
+            }
+            SchoolBlockNormalization.repairTopology(database, slot.scheduleTemplateId)
+            com.eduflow.app.data.local.SchoolLessonSourceRepair.repair(database)
+        }
+    }
+    fun deleteSlot(slot: ScheduleSlot) = viewModelScope.launch {
+        database.scheduleSlotDao().delete(slot)
+        SchoolBlockNormalization.repairTopology(database, slot.scheduleTemplateId)
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScheduleViewModel(private val database: EduFlowDatabase) : ViewModel() {
     private val repository = WeekMaterializer(database)
     private val cancellationRepository = SchoolLessonCancellationRepository(EduFlowApplication.appContext, database)
+    private val dayExceptionRepository = com.eduflow.app.data.SchoolDayExceptionRepository(EduFlowApplication.appContext, database)
     private val selectedMonday = MutableStateFlow(ScheduleCycle.mondayOf(java.time.LocalDate.now()))
     val weekMonday = selectedMonday.asStateFlow()
     val subjects = database.subjectDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -152,10 +176,10 @@ class ScheduleViewModel(private val database: EduFlowDatabase) : ViewModel() {
     }
 
     fun markNoSchool(date: java.time.LocalDate, reason: String?) = viewModelScope.launch(Dispatchers.IO) {
-        database.dayExceptionDao().upsert(DayException(date, DayExceptionType.NO_SCHOOL, title = reason?.takeIf { it.isNotBlank() }))
+        dayExceptionRepository.markNoSchool(date, reason)
     }
 
-    fun restoreSchoolDay(date: java.time.LocalDate) = viewModelScope.launch(Dispatchers.IO) { database.dayExceptionDao().deleteForDate(date) }
+    fun restoreSchoolDay(date: java.time.LocalDate) = viewModelScope.launch(Dispatchers.IO) { dayExceptionRepository.restoreSchoolDay(date) }
     fun saveEvent(event: TimetableEvent) = viewModelScope.launch(Dispatchers.IO) { database.timetableEventDao().upsert(event) }
     fun deleteEvent(event: TimetableEvent) = viewModelScope.launch(Dispatchers.IO) { database.timetableEventDao().delete(event) }
 }

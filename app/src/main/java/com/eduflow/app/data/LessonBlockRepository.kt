@@ -38,3 +38,29 @@ class SchoolLessonCancellationRepository(private val context: Context, private v
         EduFlowWidgetUpdater.update(context)
     }
 }
+
+/** Day closures make SCHOOL sessions ineligible without deleting their history. */
+class SchoolDayExceptionRepository(private val context: Context, private val database: EduFlowDatabase) {
+    suspend fun markNoSchool(date: java.time.LocalDate, reason: String?) = mutate {
+        database.dayExceptionDao().upsert(DayException(date, DayExceptionType.NO_SCHOOL, title = reason?.takeIf { it.isNotBlank() }))
+    }
+
+    suspend fun restoreSchoolDay(date: java.time.LocalDate) = mutate {
+        database.dayExceptionDao().deleteForDate(date)
+    }
+
+    private suspend fun mutate(change: suspend () -> Unit) {
+        val updates = database.withTransaction {
+            change()
+            val repository = TaskRepository(database)
+            database.taskDao().getPending().mapNotNull { task ->
+                val intended = task.intendedDueLessonInstanceId?.let { database.lessonInstanceDao().getById(it) }
+                if (intended?.kind != LessonKind.SCHOOL) null
+                else repository.recomputeEffectiveDue(task).takeIf { it != task }?.also { database.taskDao().update(it) }
+            }
+        }
+        val scheduler = TaskReminderScheduler(context, database)
+        updates.forEach { scheduler.syncTask(it) }
+        EduFlowWidgetUpdater.update(context)
+    }
+}

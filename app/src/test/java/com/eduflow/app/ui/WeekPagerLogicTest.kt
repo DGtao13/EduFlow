@@ -2,6 +2,7 @@ package com.eduflow.app.ui
 
 import com.eduflow.app.data.AcademicYearSettings
 import com.eduflow.app.data.SchoolYear
+import com.eduflow.app.domain.ScheduleCycle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

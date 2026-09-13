@@ -8,6 +8,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun EduFlowRootTopAppBar(
@@ -15,7 +16,7 @@ fun EduFlowRootTopAppBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
-        title = { Text(title) },
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         actions = actions,
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.primary,
@@ -33,7 +34,9 @@ fun EduFlowChildTopAppBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
-        title = { Text(title) },
+        // A constrained, ellipsized title keeps the navigation icon aligned and never
+        // leaves a clipped second line below the app bar.
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = navigationIcon,
         actions = actions,
         colors = TopAppBarDefaults.topAppBarColors(

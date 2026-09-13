@@ -26,3 +26,7 @@ signing.properties
 .env.*
 *.log
 *.tmp
+
+# User-created EduFlow archives and exports
+*.eduflow
+EduFlow-export-*.zip

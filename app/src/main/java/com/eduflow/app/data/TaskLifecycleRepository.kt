@@ -31,7 +31,7 @@ class TaskLifecycleRepository(private val context: Context, private val database
         EduFlowWidgetUpdater.update(context)
         return id
     }
-    suspend fun delete(task: Task) { scheduler.cancelTask(task.id); database.taskDao().delete(task); EduFlowWidgetUpdater.update(context) }
+    suspend fun delete(task: Task) { scheduler.cancelTask(task.id); database.taskDao().delete(task); TaskDuePresetRepository(context).remove(task.id); EduFlowWidgetUpdater.update(context) }
     suspend fun deleteReminder(reminder: TaskReminder) { scheduler.cancelReminder(reminder.id); if (reminder.id != 0L) database.taskReminderDao().delete(reminder) }
     suspend fun clearReminders(taskId: Long) { database.taskReminderDao().getForTask(taskId).forEach { scheduler.cancelReminder(it.id); database.taskReminderDao().delete(it) } }
     suspend fun clearRelativeReminders(taskId: Long) { database.taskReminderDao().getForTask(taskId).filter { it.kind != TaskReminderKind.CUSTOM }.forEach { scheduler.cancelReminder(it.id); database.taskReminderDao().delete(it) } }
