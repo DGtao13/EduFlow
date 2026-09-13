@@ -108,6 +108,6 @@ Use the in-app feedback option or open a GitHub issue after the repository is pu
 
 ## Author
 
-EduFlow is a personal Android project by Daniel Isrusev.
+EduFlow is a personal Android project.
 
 No license has been selected for this repository yet; making the source public does not itself grant reuse rights.
