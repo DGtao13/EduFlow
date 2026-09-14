@@ -248,6 +248,8 @@ private fun SchedulePager(
     val density = LocalDensity.current
     var todayRequest by remember { mutableStateOf<TodayPositionRequest?>(null) }
     var datePickerOpen by remember { mutableStateOf(false) }
+    var privateQuickActionLesson by remember { mutableStateOf<LessonInstance?>(null) }
+    var privateDeleteConfirmation by remember { mutableStateOf<LessonInstance?>(null) }
 
     LaunchedEffect(launchToday) {
         if (launchToday) {
@@ -429,12 +431,52 @@ private fun SchedulePager(
         Text(stringResource(R.string.no_lessons_week), modifier = Modifier.padding(horizontal = scheduleContentFrameInset, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Box(Modifier.padding(horizontal = scheduleContentFrameInset)) {
-        PrivateLessonsWeekSection(settledData.privateLessons, subjects, privateAnchors) { navController.navigate("lesson/$it") }
+        PrivateLessonsWeekSection(
+            lessons = settledData.privateLessons,
+            subjects = subjects,
+            anchors = privateAnchors,
+            onOpen = { navController.navigate("lesson/$it") },
+            onLongPress = { privateQuickActionLesson = it }
+        )
+    }
+    privateQuickActionLesson?.let { lesson ->
+        PrivateLessonActionsSheet(
+            lesson = lesson,
+            onDismiss = { privateQuickActionLesson = null },
+            onOpen = { privateQuickActionLesson = null; navController.navigate("lesson/${lesson.id}") },
+            onEdit = { privateQuickActionLesson = null; navController.navigate("private/oneoff/edit/${lesson.id}") },
+            onAddSimilar = { privateQuickActionLesson = null; navController.navigate("private/oneoff/similar/${lesson.id}") },
+            onToggleCancellation = { privateQuickActionLesson = null; viewModel.toggleCancellation(lesson) },
+            onDelete = { privateDeleteConfirmation = lesson; privateQuickActionLesson = null }
+        )
+    }
+    privateDeleteConfirmation?.let { lesson ->
+        AlertDialog(
+            onDismissRequest = { privateDeleteConfirmation = null },
+            title = { Text(stringResource(R.string.delete_private_lesson_instance_question)) },
+            text = { Text(stringResource(R.string.delete_private_lesson_instance_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        privateDeleteConfirmation = null
+                        viewModel.deletePrivateOneOff(lesson)
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { privateDeleteConfirmation = null }) { Text(stringResource(R.string.cancel)) } }
+        )
     }
 }
 
 @Composable
-private fun PrivateLessonsWeekSection(lessons: List<LessonInstance>, subjects: Map<Long, Subject>, anchors: Map<LocalDate, BringIntoViewRequester>, onOpen: (Long) -> Unit) {
+private fun PrivateLessonsWeekSection(
+    lessons: List<LessonInstance>,
+    subjects: Map<Long, Subject>,
+    anchors: Map<LocalDate, BringIntoViewRequester>,
+    onOpen: (Long) -> Unit,
+    onLongPress: (LessonInstance) -> Unit
+) {
     val groups = remember(lessons) { groupPrivateAgendaLessons(lessons) }
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     // One wakeup at the next visible lesson's end, plus refresh when the app resumes.
@@ -458,8 +500,14 @@ private fun PrivateLessonsWeekSection(lessons: List<LessonInstance>, subjects: M
             Text(privateAgendaDateHeading(group.date), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp).then(if (group.lessons.size > 1 && target != null) Modifier.bringIntoViewRequester(target) else Modifier))
             group.lessons.forEach { lesson ->
                 key(lesson.id) {
-                    PrivateAppointmentCard(lesson, subjects[lesson.subjectId], now,
-                        if (group.lessons.size == 1 && target != null) Modifier.bringIntoViewRequester(target) else Modifier) { onOpen(lesson.id) }
+                    PrivateAppointmentCard(
+                        lesson = lesson,
+                        subject = subjects[lesson.subjectId],
+                        now = now,
+                        modifier = if (group.lessons.size == 1 && target != null) Modifier.bringIntoViewRequester(target) else Modifier,
+                        onOpen = { onOpen(lesson.id) },
+                        onLongPress = { onLongPress(lesson) }
+                    )
                 }
             }
         }
@@ -467,10 +515,18 @@ private fun PrivateLessonsWeekSection(lessons: List<LessonInstance>, subjects: M
 }
 
 @Composable
-private fun PrivateAppointmentCard(lesson: LessonInstance, subject: Subject?, now: LocalDateTime, modifier: Modifier = Modifier, onOpen: () -> Unit) {
+private fun PrivateAppointmentCard(
+    lesson: LessonInstance,
+    subject: Subject?,
+    now: LocalDateTime,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit,
+    onLongPress: () -> Unit
+) {
     val temporal = privateAppointmentState(lesson, now)
     Card(
-        modifier = modifier.fillMaxWidth().alpha(if (temporal == PrivateAppointmentState.PAST) .64f else 1f).clickable(onClick = onOpen),
+        modifier = modifier.fillMaxWidth().alpha(if (temporal == PrivateAppointmentState.PAST) .64f else 1f)
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
         shape = RoundedCornerShape(10.dp),
         colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = if (temporal == PrivateAppointmentState.CANCELLED) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
@@ -502,6 +558,8 @@ private fun OutsideAcademicWeekContent(
     onDeleteEvent: (TimetableEvent) -> Unit
 ) {
     var eventEditor by remember(weekMonday) { mutableStateOf<TimetableEvent?>(null) }
+    var eventActions by remember(weekMonday) { mutableStateOf<TimetableEvent?>(null) }
+    var eventDeleteConfirmation by remember(weekMonday) { mutableStateOf<TimetableEvent?>(null) }
     var addMenuOpen by remember(weekMonday) { mutableStateOf(false) }
     val weekDates = remember(weekMonday) { List(5) { weekMonday.plusDays(it.toLong()) } }
     val sortedEvents = remember(events) {
@@ -538,7 +596,9 @@ private fun OutsideAcademicWeekContent(
             )
             sortedEvents.forEach { event ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { eventEditor = event }.padding(vertical = 6.dp),
+                    Modifier.fillMaxWidth()
+                        .combinedClickable(onClick = { eventEditor = event }, onLongClick = { eventActions = event })
+                        .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -578,6 +638,28 @@ private fun OutsideAcademicWeekContent(
             onDismiss = { eventEditor = null },
             onSave = { onSaveEvent(it); eventEditor = null },
             onDelete = { onDeleteEvent(event); eventEditor = null }
+        )
+    }
+    eventActions?.let { event ->
+        EventActionsSheet(
+            event = event,
+            onDismiss = { eventActions = null },
+            onEdit = { eventActions = null; eventEditor = event },
+            onDelete = { eventActions = null; eventDeleteConfirmation = event }
+        )
+    }
+    eventDeleteConfirmation?.let { event ->
+        AlertDialog(
+            onDismissRequest = { eventDeleteConfirmation = null },
+            title = { Text(stringResource(R.string.delete_event_question)) },
+            text = { Text(stringResource(R.string.delete_event_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { onDeleteEvent(event); eventDeleteConfirmation = null },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { eventDeleteConfirmation = null }) { Text(stringResource(R.string.cancel)) } }
         )
     }
 }
@@ -729,6 +811,8 @@ private fun TimetableDayColumn(
     var blockDialog by remember(date) { mutableStateOf(false) }
     var noSchoolDialog by remember(date) { mutableStateOf(false) }
     var eventEditor by remember(date) { mutableStateOf<TimetableEvent?>(null) }
+    var eventActions by remember(date) { mutableStateOf<TimetableEvent?>(null) }
+    var eventDeleteConfirmation by remember(date) { mutableStateOf<TimetableEvent?>(null) }
     var quickActionLesson by remember(date) { mutableStateOf<LessonInstance?>(null) }
     var blockCancellationConfirmation by remember(date) { mutableStateOf<LessonBlock?>(null) }
     val isNoSchool = exception?.type == com.eduflow.app.data.local.DayExceptionType.NO_SCHOOL
@@ -744,7 +828,12 @@ private fun TimetableDayColumn(
             onAddEvent = { eventEditor = TimetableEvent(date = date, title = "") },
             canCancel = lessons.any { it.cancellationState != CancellationState.CANCELLED }
         )
-        DayEventsArea(events, eventAreaHeight) { eventEditor = it }
+        DayEventsArea(
+            events = events,
+            height = eventAreaHeight,
+            onClick = { eventEditor = it },
+            onLongClick = { eventActions = it }
+        )
         periodRows.forEach { row ->
             val lesson = lessonsByStart[row.startTime]
             if (lesson == null) {
@@ -789,6 +878,28 @@ private fun TimetableDayColumn(
     }
     if (noSchoolDialog) NoSchoolDialog({ noSchoolDialog = false }) { reason -> onMarkNoSchool(date, reason); noSchoolDialog = false }
     eventEditor?.let { event -> EventEditorDialog(event, { eventEditor = null }, { onSaveEvent(it); eventEditor = null }, { onDeleteEvent(event); eventEditor = null }) }
+    eventActions?.let { event ->
+        EventActionsSheet(
+            event = event,
+            onDismiss = { eventActions = null },
+            onEdit = { eventActions = null; eventEditor = event },
+            onDelete = { eventActions = null; eventDeleteConfirmation = event }
+        )
+    }
+    eventDeleteConfirmation?.let { event ->
+        AlertDialog(
+            onDismissRequest = { eventDeleteConfirmation = null },
+            title = { Text(stringResource(R.string.delete_event_question)) },
+            text = { Text(stringResource(R.string.delete_event_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { onDeleteEvent(event); eventDeleteConfirmation = null },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { eventDeleteConfirmation = null }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
 }
 
 @Composable
@@ -851,7 +962,12 @@ private fun TimetableDayHeader(
 }
 
 @Composable
-private fun DayEventsArea(events: List<TimetableEvent>, height: androidx.compose.ui.unit.Dp, onClick: (TimetableEvent) -> Unit) {
+private fun DayEventsArea(
+    events: List<TimetableEvent>,
+    height: androidx.compose.ui.unit.Dp,
+    onClick: (TimetableEvent) -> Unit,
+    onLongClick: (TimetableEvent) -> Unit
+) {
     if (height == 0.dp) return
     Column(
         Modifier.height(height).padding(vertical = timetableEventLaneVerticalPadding),
@@ -862,7 +978,7 @@ private fun DayEventsArea(events: List<TimetableEvent>, height: androidx.compose
                 Modifier.fillMaxWidth().height(timetableEventCardHeight).padding(horizontal = 2.dp)
                     .background(MaterialTheme.colorScheme.tertiaryContainer, timetableCellShape)
                     .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = .45f), timetableCellShape)
-                    .clickable { onClick(event) }
+                    .combinedClickable(onClick = { onClick(event) }, onLongClick = { onLongClick(event) })
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Column {

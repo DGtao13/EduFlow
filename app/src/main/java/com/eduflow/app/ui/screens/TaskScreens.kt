@@ -206,8 +206,6 @@ fun LessonDetailsScreen(database: EduFlowDatabase, lessonId: Long, navController
     )
     if (showPrivateActions) PrivateLessonActionsSheet(
         lesson = item,
-        canEdit = item.sourcePrivateLessonId == null,
-        canDelete = item.sourcePrivateLessonId == null,
         onDismiss = { showPrivateActions = false },
         onEdit = { showPrivateActions = false; navController.navigate("private/oneoff/edit/${item.id}") },
         onAddSimilar = { showPrivateActions = false; navController.navigate("private/oneoff/similar/${item.id}") },
@@ -238,41 +236,6 @@ fun LessonDetailsScreen(database: EduFlowDatabase, lessonId: Long, navController
             }
         }
     )
-}
-
-@Composable
-private fun PrivateLessonActionsSheet(
-    lesson: com.eduflow.app.data.local.LessonInstance,
-    canEdit: Boolean,
-    canDelete: Boolean,
-    onDismiss: () -> Unit,
-    onEdit: () -> Unit,
-    onAddSimilar: () -> Unit,
-    onToggleCancellation: () -> Unit,
-    onDelete: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(lesson.privateLessonName ?: stringResource(R.string.private_lesson), style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${formatBulgarianDate(lesson.actualDate)} · ${lesson.actualStartTime}–${lesson.actualEndTime}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (canEdit) PrivateLessonActionRow(stringResource(R.string.edit), Icons.Default.Edit, onEdit)
-            PrivateLessonActionRow(stringResource(R.string.add_similar_private_lesson), Icons.Default.Add, onAddSimilar)
-            HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
-            PrivateLessonActionRow(stringResource(if (lesson.cancellationState == CancellationState.CANCELLED) R.string.restore else R.string.cancel_lesson), if (lesson.cancellationState == CancellationState.CANCELLED) Icons.Default.CheckCircle else Icons.Default.Delete, onToggleCancellation, destructive = lesson.cancellationState != CancellationState.CANCELLED)
-            if (canDelete) PrivateLessonActionRow(stringResource(R.string.delete), Icons.Default.Delete, onDelete, destructive = true)
-        }
-    }
-}
-
-@Composable
-private fun PrivateLessonActionRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit, destructive: Boolean = false) {
-    val tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = tint)
-        Text(label, color = tint, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp))
-    }
 }
 
 @Composable private fun SectionTitle(value: String) { Text(value, style = MaterialTheme.typography.titleMedium) }

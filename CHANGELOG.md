@@ -1,5 +1,12 @@
 # Changelog
 
+## EduFlow 1.0.1
+
+- Improved long-press actions for PRIVATE lessons.
+- Added Edit and Delete actions when long-pressing schedule events.
+- Made Start-to-End time-range entry smoother.
+- Corrected project attribution to DGtao13.
+
 ## EduFlow 1.0.0
 
 The first stable release of EduFlow, a Bulgarian-first local Android student planner.

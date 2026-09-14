@@ -384,7 +384,10 @@
     <string name="about_eduflow">За EduFlow</string>
     <string name="app_name">EduFlow</string>
     <string name="app_version">Версия %1$s</string>
-    <string name="creator_credit">Създадено от Даниел Русев</string>
+    <string name="creator_credit">Създадено от DGtao13</string>
+    <string name="delete_event_question">Изтриване на събитието?</string>
+    <string name="delete_event_message">Това събитие ще бъде изтрито от разписанието.</string>
+    <string name="range_back_to_start">Начало</string>
     <string name="about_description">Личен помощник за разписание, уроци и задачи.</string>
     <string name="local_first_privacy">EduFlow съхранява данните ти локално на устройството.</string>
     <string name="no_pending_tasks">Нямаш предстоящи задачи</string>

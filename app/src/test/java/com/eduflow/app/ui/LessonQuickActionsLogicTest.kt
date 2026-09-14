@@ -41,4 +41,24 @@ class LessonQuickActionsLogicTest {
         val block = LessonBlock(listOf(selected, lesson(2)))
         assertEquals(listOf(LessonQuickActionKind.OPEN, LessonQuickActionKind.ADD_TASK, LessonQuickActionKind.RESTORE_LESSON, LessonQuickActionKind.RESTORE_BLOCK), lessonQuickActionKinds(selected, block))
     }
+
+    @Test fun oneOffPrivateLessonOffersOpenEditSimilarToggleAndDelete() {
+        val selected = lesson(1).copy(kind = LessonKind.PRIVATE, sourcePrivateLessonId = null)
+        assertEquals(
+            listOf(PrivateQuickActionKind.OPEN, PrivateQuickActionKind.EDIT, PrivateQuickActionKind.ADD_SIMILAR, PrivateQuickActionKind.TOGGLE_CANCELLATION, PrivateQuickActionKind.DELETE),
+            privateQuickActionKinds(selected)
+        )
+    }
+
+    @Test fun recurringPrivateOccurrenceExcludesEditAndDelete() {
+        val selected = lesson(1).copy(kind = LessonKind.PRIVATE, sourcePrivateLessonId = 99)
+        assertEquals(
+            listOf(PrivateQuickActionKind.OPEN, PrivateQuickActionKind.ADD_SIMILAR, PrivateQuickActionKind.TOGGLE_CANCELLATION),
+            privateQuickActionKinds(selected)
+        )
+    }
+
+    @Test fun eventActionsAreEditAndDeleteOnly() {
+        assertEquals(listOf(EventQuickActionKind.EDIT, EventQuickActionKind.DELETE), eventQuickActionKinds())
+    }
 }

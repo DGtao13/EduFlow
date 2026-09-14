@@ -21,3 +21,27 @@ fun lessonQuickActionKinds(lesson: LessonInstance, block: LessonBlock): List<Les
         add(if (lesson.cancellationState == CancellationState.CANCELLED) LessonQuickActionKind.RESTORE_BLOCK else LessonQuickActionKind.CANCEL_BLOCK)
     }
 }
+
+enum class PrivateQuickActionKind {
+    OPEN,
+    EDIT,
+    ADD_SIMILAR,
+    TOGGLE_CANCELLATION,
+    DELETE
+}
+
+fun privateQuickActionKinds(lesson: LessonInstance): List<PrivateQuickActionKind> = buildList {
+    add(PrivateQuickActionKind.OPEN)
+    if (lesson.sourcePrivateLessonId == null) add(PrivateQuickActionKind.EDIT)
+    add(PrivateQuickActionKind.ADD_SIMILAR)
+    add(PrivateQuickActionKind.TOGGLE_CANCELLATION)
+    if (lesson.sourcePrivateLessonId == null) add(PrivateQuickActionKind.DELETE)
+}
+
+enum class EventQuickActionKind {
+    EDIT,
+    DELETE
+}
+
+fun eventQuickActionKinds(): List<EventQuickActionKind> =
+    listOf(EventQuickActionKind.EDIT, EventQuickActionKind.DELETE)

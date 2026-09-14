@@ -10,6 +10,7 @@ import com.eduflow.app.data.local.ScheduleSlot
 import com.eduflow.app.data.local.ScheduleTemplate
 import com.eduflow.app.data.local.Subject
 import com.eduflow.app.data.local.LessonInstance
+import com.eduflow.app.data.local.LessonKind
 import com.eduflow.app.data.local.CancellationState
 import com.eduflow.app.data.local.DayException
 import com.eduflow.app.data.local.DayExceptionType
@@ -164,7 +165,18 @@ class ScheduleViewModel(private val database: EduFlowDatabase) : ViewModel() {
     }
 
     fun toggleCancellation(lesson: LessonInstance) = viewModelScope.launch(Dispatchers.IO) {
+        if (lesson.kind == LessonKind.PRIVATE && lesson.cancellationState == CancellationState.CANCELLED) {
+            com.eduflow.app.data.NotificationSettingsRepository(EduFlowApplication.appContext).allowPrivate(lesson.id)
+        }
         cancellationRepository.setLessonCancellation(lesson, if (lesson.cancellationState == CancellationState.CANCELLED) CancellationState.ACTIVE else CancellationState.CANCELLED)
+    }
+
+    fun deletePrivateOneOff(lesson: LessonInstance) = viewModelScope.launch(Dispatchers.IO) {
+        val current = database.lessonInstanceDao().getById(lesson.id)
+        if (current?.kind == LessonKind.PRIVATE && current.sourcePrivateLessonId == null) {
+            com.eduflow.app.data.NotificationSettingsRepository(EduFlowApplication.appContext).suppressDeletedPrivate(listOf(current))
+            database.lessonInstanceDao().delete(current)
+        }
     }
 
     fun cancelLessons(lessons: List<LessonInstance>) = viewModelScope.launch(Dispatchers.IO) {
