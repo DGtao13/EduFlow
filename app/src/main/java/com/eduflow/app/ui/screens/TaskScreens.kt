@@ -108,6 +108,9 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class TaskEditorSheet { SUBJECT, TYPE, PRIORITY, DEADLINE, REMINDERS }
 private val taskTimeFormat = DateTimeFormatter.ofPattern("HH:mm")
@@ -320,6 +323,7 @@ fun TaskEditorScreen(database: EduFlowDatabase, taskId: Long?, originId: Long?, 
     val stored = seed.task; val origin = seed.origin; val checklist = seed.checklist; val reminders = seed.reminders
     val subjects by vm.subjects.collectAsState(); val error by vm.error.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val notificationSettings by remember(context) { com.eduflow.app.data.NotificationSettingsRepository(context) }.settings.collectAsState(com.eduflow.app.data.NotificationSettings())
     val sourceSlots by vm.scheduleSlots.collectAsState()
     val savedOrdinal = seed.ordinal
@@ -394,6 +398,17 @@ fun TaskEditorScreen(database: EduFlowDatabase, taskId: Long?, originId: Long?, 
             }
             error?.let { Text(when (it) { "NO_NEXT" -> stringResource(R.string.no_next_lesson); "TITLE" -> stringResource(R.string.task_required); else -> stringResource(R.string.invalid_deadline) }, color = MaterialTheme.colorScheme.error) }
             Button(onClick = { saveDraft { navController.popBackStack() } }, modifier = Modifier.fillMaxWidth(), enabled = taskId == null || dirty) { Text(stringResource(R.string.save)) }
+            stored?.let { shareable -> TextButton(onClick = {
+                scope.launch {
+                    val uri = withContext(Dispatchers.IO) { com.eduflow.app.data.TaskShareRepository(context, database).createShareUri(shareable) }
+                    context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        setType(com.eduflow.app.data.TaskShareFormat.MIME_TYPE)
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = android.content.ClipData.newRawUri("EduFlow task", uri)
+                    }, "Споделяне на задача"))
+                }
+            }) { Text("Сподели") } }
             stored?.let { TextButton(onClick = { confirmDelete = true }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) } }
         }
     }

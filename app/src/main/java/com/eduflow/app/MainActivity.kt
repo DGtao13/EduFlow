@@ -2,6 +2,7 @@ package com.eduflow.app
 
 import android.graphics.Color
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -34,6 +35,22 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); requestedRoute = consumeRoute(intent) }
 
     private fun consumeRoute(intent: android.content.Intent?): ExternalRouteEvent? {
+        if (intent?.action == android.content.Intent.ACTION_VIEW && intent.data != null) {
+            val uri = intent.data ?: return null
+            val displayName = runCatching {
+                contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull()
+            if (!com.eduflow.app.data.TaskShareIntentRouting.shouldOpen(
+                    intent.action, intent.type, displayName, uri.path
+                )) return null
+            intent.action = null
+            intent.data = null
+            intent.flags = intent.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION.inv()
+            intent.let(::setIntent)
+            return ExternalRouteEvent(++nextExternalEventId, "share/import", uri.toString())
+        }
         val route = ExternalRouteParser.routeFor(intent?.action, intent?.getLongExtra(EduFlowNotifications.EXTRA_TASK_ID, -1) ?: -1) ?: return null
         intent?.action = null
         intent?.removeExtra(EduFlowNotifications.EXTRA_TASK_ID)

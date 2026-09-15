@@ -39,4 +39,16 @@ class EduFlowMigrationTest {
         }
         migrated.close()
     }
+
+    @Test fun v10ToV11AddsShareProvenanceWithoutTouchingTasks() {
+        val name = "migration-v10-v11-test.db"
+        helper.createDatabase(name, 10).apply {
+            execSQL("INSERT INTO tasks (id, title, description, subjectId, originatingLessonInstanceId, dueLessonInstanceId, intendedDueLessonInstanceId, type, priority, status, dueAt, completedAt, createdAt) VALUES (1, 'Запази ме', NULL, NULL, NULL, NULL, NULL, 'HOMEWORK', 'MUST', 'PENDING', NULL, NULL, '2026-09-20T09:00')")
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(name, 11, true, EduFlowDatabase.MIGRATION_10_11)
+        migrated.query("SELECT title FROM tasks WHERE id = 1").use { cursor -> assertEquals(true, cursor.moveToFirst()); assertEquals("Запази ме", cursor.getString(0)) }
+        migrated.query("SELECT name FROM sqlite_master WHERE type='table' AND name='imported_task_shares'").use { cursor -> assertEquals(true, cursor.moveToFirst()) }
+        migrated.close()
+    }
 }

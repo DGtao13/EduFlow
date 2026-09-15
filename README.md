@@ -23,6 +23,7 @@ Plan each school week, keep coursework connected to the lessons it belongs to, a
 - Homework and tasks with types, priorities, checklists, and exact deadlines.
 - Lesson-based deadlines such as “for the next lesson” and “for the lesson after next.”
 - Intended deadlines can be forwarded reversibly when a relevant lesson becomes unavailable.
+- Share individual tasks or homework as `.eduflowtask` files, review the import, and map the Subject when needed.
 
 ### Lessons
 
@@ -100,7 +101,7 @@ Release signing is configured from local environment variables and signing mater
 
 ## Project status
 
-EduFlow v1.0 is the first stable release.
+EduFlow v1.1.0 is the current stable release.
 
 ## Feedback and bug reports
 

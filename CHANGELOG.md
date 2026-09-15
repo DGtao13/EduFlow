@@ -1,5 +1,13 @@
 # Changelog
 
+## EduFlow 1.1.0
+
+- Added sharing for individual tasks and homework between EduFlow installations.
+- Added `.eduflowtask` import with a review screen before anything is saved.
+- Added Subject matching and an explicit Subject mapping step when needed.
+- Shared lesson-relative deadlines now resolve against the receiving timetable, including the next and second-next lesson.
+- Added duplicate-import protection for shared tasks.
+
 ## EduFlow 1.0.1
 
 - Improved long-press actions for PRIVATE lessons.

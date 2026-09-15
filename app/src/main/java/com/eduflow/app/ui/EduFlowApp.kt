@@ -88,7 +88,11 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
         controller.isAppearanceLightStatusBars = currentRoute !in rootRoutes
         controller.isAppearanceLightNavigationBars = true
     }
-    LaunchedEffect(externalRoute?.id) { externalRoute?.let { event -> onExternalRouteConsumed(event.id); navController.navigate(event.route) { launchSingleTop = true } } }
+    LaunchedEffect(externalRoute?.id) { externalRoute?.let { event ->
+        onExternalRouteConsumed(event.id)
+        val route = if (event.route == "share/import" && event.importUri != null) "share/import/${android.net.Uri.encode(event.importUri)}" else event.route
+        navController.navigate(route) { launchSingleTop = true }
+    } }
 
     EditorBackBoundary {
     Scaffold(
@@ -162,6 +166,7 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
                 val subjectId = token?.removePrefix("subject_")?.takeIf { token.startsWith("subject_") }?.toLongOrNull()
                 TaskEditorScreen(database, taskId, originId, navController, subjectId)
             }
+            composable("share/import/{uri}") { entry -> entry.arguments?.getString("uri")?.let { com.eduflow.app.ui.screens.TaskShareImportScreen(database, android.net.Uri.parse(it), navController) } }
         }
     }
     }

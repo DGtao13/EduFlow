@@ -21,9 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TimetableEvent::class,
         Task::class,
         TaskChecklistItem::class,
-        TaskReminder::class
+        TaskReminder::class,
+        ImportedTaskShare::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(EduFlowConverters::class)
@@ -39,6 +40,7 @@ abstract class EduFlowDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun taskChecklistDao(): TaskChecklistDao
     abstract fun taskReminderDao(): TaskReminderDao
+    abstract fun importedTaskShareDao(): ImportedTaskShareDao
 
     companion object {
         @Volatile private var instance: EduFlowDatabase? = null
@@ -49,8 +51,16 @@ abstract class EduFlowDatabase : RoomDatabase() {
                     context.applicationContext,
                     EduFlowDatabase::class.java,
                     "eduflow.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).build().also { instance = it }
             }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `imported_task_shares` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `shareId` TEXT NOT NULL, `taskId` INTEGER NOT NULL, `importedAt` TEXT NOT NULL)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_imported_task_shares_shareId` ON `imported_task_shares` (`shareId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_imported_task_shares_taskId` ON `imported_task_shares` (`taskId`)")
+            }
+        }
 
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(database: SupportSQLiteDatabase) {

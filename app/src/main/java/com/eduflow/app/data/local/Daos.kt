@@ -174,3 +174,9 @@ interface TaskChecklistDao {
     @Query("SELECT * FROM task_checklist_items") suspend fun getAll(): List<TaskChecklistItem>
     @Query("DELETE FROM task_checklist_items") suspend fun clear()
 }
+
+@Dao
+interface ImportedTaskShareDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(item: ImportedTaskShare): Long
+    @Query("SELECT * FROM imported_task_shares WHERE shareId = :shareId LIMIT 1") suspend fun getByShareId(shareId: String): ImportedTaskShare?
+}

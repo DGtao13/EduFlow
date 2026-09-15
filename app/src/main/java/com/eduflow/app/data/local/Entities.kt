@@ -253,3 +253,12 @@ data class TaskReminder(
     val enabled: Boolean = true,
     val createdAt: LocalDateTime
 )
+
+/** Receiver-side provenance only.  The share id is never a Task identity. */
+@Entity(tableName = "imported_task_shares", indices = [Index(value = ["shareId"], unique = true), Index("taskId")])
+data class ImportedTaskShare(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val shareId: String,
+    val taskId: Long,
+    val importedAt: LocalDateTime
+)

@@ -1,6 +1,6 @@
 package com.eduflow.app.ui
 
-data class ExternalRouteEvent(val id: Long, val route: String)
+data class ExternalRouteEvent(val id: Long, val route: String, val importUri: String? = null)
 
 object ExternalRouteParser {
     fun routeFor(action: String?, taskId: Long): String? = when (action) {
