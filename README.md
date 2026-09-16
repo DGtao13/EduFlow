@@ -6,6 +6,10 @@
 
 EduFlow is a local-first Android student planner for managing school timetables, homework, private lessons, reminders, events, and academic planning. The current interface is Bulgarian-first.
 
+## Language convention
+
+User-facing EduFlow app content is Bulgarian-first; public repository documentation and release communication are written in English.
+
 ## Overview
 
 Plan each school week, keep coursework connected to the lessons it belongs to, and keep private lessons and reminders in the same place.
