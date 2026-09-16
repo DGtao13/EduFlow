@@ -95,17 +95,19 @@ try {
         Fail "Required production APK is missing or empty: $apkPath"
     }
 
-    $localHead = (Invoke-GitCapture $repositoryRoot @('rev-parse', 'HEAD'))
-    if ($localHead.ExitCode -ne 0) { Fail 'Unable to resolve local HEAD.' }
-    $localCommit = $localHead.Output.Trim()
+    $localTag = (Invoke-GitCapture $repositoryRoot @('rev-parse', "$tag^{}"))
+    if ($localTag.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($localTag.Output)) {
+        Fail "Unable to resolve the local peeled release tag $tag."
+    }
+    $localTagCommit = $localTag.Output.Trim()
     $remoteTags = Invoke-GitCapture $repositoryRoot @('ls-remote', 'origin', "refs/tags/$tag", "refs/tags/$tag^{}")
     if ($remoteTags.ExitCode -ne 0) { Fail 'Unable to inspect the requested remote tag.' }
     $remotePeeled = @($remoteTags.Output -split '\r?\n' | Where-Object { $_ -match ("\trefs/tags/" + [regex]::Escape($tag) + '\^\{\}$') } | ForEach-Object { ($_ -split '\s+')[0] })
     if ($remotePeeled.Count -ne 1 -or [string]::IsNullOrWhiteSpace($remotePeeled[0])) {
         Fail "Required annotated remote tag $tag is missing or does not expose a peeled commit."
     }
-    if ($remotePeeled[0] -ne $localCommit) {
-        Fail "Remote tag $tag does not point to local HEAD; refusing to publish."
+    if ($remotePeeled[0] -ne $localTagCommit) {
+        Fail "Remote tag $tag does not point to the local peeled release tag; refusing to publish."
     }
 
     $gh = Resolve-GitHubCli
@@ -139,7 +141,7 @@ try {
     Write-Host 'EDUFLOW GITHUB RELEASE: PASS'
     Write-Host "repository: $ExpectedRepository"
     Write-Host "tag: $tag"
-    Write-Host "release commit: $localCommit"
+    Write-Host "release commit: $localTagCommit"
     Write-Host "title: $title"
     Write-Host "release URL: $($release.url)"
     Write-Host "APK: $($assets[0].name)"
