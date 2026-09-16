@@ -58,8 +58,8 @@ function Get-GitHubReleaseLookup([string]$GitHubCli, [string]$Repository, [strin
         Fail "GitHub Release lookup returned no HTTP status for $Tag (exit code $exitCode)."
     }
     $statusCode = [int]$statusMatch.Groups['status'].Value
-    if ($statusCode -eq 200 -and $exitCode -eq 0) { return 'EXISTS' }
-    if ($statusCode -eq 404 -and $exitCode -ne 0) { return 'ABSENT' }
+    if ($statusCode -eq 200) { return 'EXISTS' }
+    if ($statusCode -eq 404) { return 'ABSENT' }
     Fail "GitHub Release lookup failed for $Tag (HTTP $statusCode, exit code $exitCode)."
 }
 
