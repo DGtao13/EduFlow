@@ -47,6 +47,22 @@ function Resolve-GitHubCli {
     Fail 'GitHub CLI (gh) is required. Install it on PATH or at %LOCALAPPDATA%\Programs\GitHubCLI\bin\gh.exe, then authenticate before publishing.'
 }
 
+function Get-GitHubReleaseLookup([string]$GitHubCli, [string]$Repository, [string]$Tag) {
+    # `gh release view` reports an absent release through human-readable stderr.
+    # Query the release endpoint with response headers instead, so only a verified
+    # HTTP 404 means absent; every other unsuccessful response fails closed.
+    $output = (& $GitHubCli api --include --method GET "repos/$Repository/releases/tags/$Tag" 2>&1 | Out-String)
+    $exitCode = $LASTEXITCODE
+    $statusMatch = [regex]::Match($output, '(?m)^HTTP/\S+\s+(?<status>\d{3})\b')
+    if (-not $statusMatch.Success) {
+        Fail "GitHub Release lookup returned no HTTP status for $Tag (exit code $exitCode)."
+    }
+    $statusCode = [int]$statusMatch.Groups['status'].Value
+    if ($statusCode -eq 200 -and $exitCode -eq 0) { return 'EXISTS' }
+    if ($statusCode -eq 404 -and $exitCode -ne 0) { return 'ABSENT' }
+    Fail "GitHub Release lookup failed for $Tag (HTTP $statusCode, exit code $exitCode)."
+}
+
 try {
     $repositoryRootResult = (& git rev-parse --show-toplevel 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { Fail 'Run this script from inside the EduFlow Git repository.' }
@@ -98,12 +114,9 @@ try {
     & $gh auth status --hostname github.com 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail 'GitHub CLI is not authenticated for github.com.' }
 
-    $existingReleaseOutput = (& $gh release view $tag --repo $ExpectedRepository 2>&1 | Out-String)
-    $existingReleaseExitCode = $LASTEXITCODE
-    if ($existingReleaseExitCode -eq 0) { Fail "GitHub Release $tag already exists; refusing to modify it." }
-    if ($existingReleaseOutput -notmatch '(?i)release not found|not found') {
-        Fail "Unable to determine whether GitHub Release $tag already exists; refusing to create it."
-    }
+    $releaseLookup = Get-GitHubReleaseLookup $gh $ExpectedRepository $tag
+    if ($releaseLookup -eq 'EXISTS') { Fail "GitHub Release $tag already exists; refusing to modify it." }
+    if ($releaseLookup -ne 'ABSENT') { Fail "Unable to determine whether GitHub Release $tag already exists; refusing to create it." }
 
     & $gh release create $tag $apkPath --repo $ExpectedRepository --title $title --notes-file $notesPath --verify-tag
     if ($LASTEXITCODE -ne 0) { Fail "GitHub Release creation failed for $tag." }
