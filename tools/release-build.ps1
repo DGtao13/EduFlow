@@ -217,6 +217,14 @@ function Get-ReadableSize([Int64]$Bytes) {
     return ('{0:N2} MB' -f ($Bytes / 1MB))
 }
 
+function Get-CanonicalApkPath([string]$RepositoryRoot, [string]$VersionName) {
+    if ([string]::IsNullOrWhiteSpace($VersionName) -or $VersionName -notmatch '^\d+\.\d+\.\d+$') {
+        Fail "Production versionName '$VersionName' is not a stable X.Y.Z release version."
+    }
+    $releaseDirectory = Join-Path $RepositoryRoot 'app\build\outputs\apk\release'
+    return Join-Path $releaseDirectory "EduFlow-v$VersionName.apk"
+}
+
 function Assert-ApkIdentity([pscustomobject]$Tools, [string]$ApkPath, [pscustomobject]$ExpectedIdentity) {
     $badgingResult = Invoke-NativeCapture $Tools.Aapt @('dump', 'badging', $ApkPath)
     if ($badgingResult.ExitCode -ne 0) { Fail 'aapt could not read the production APK.' }
@@ -329,6 +337,25 @@ try {
     Assert-ProductionCertificate $tools $apkPath
 
     $phase = 'APK hash calculation'
+    $apkFile = Get-Item -LiteralPath $apkPath
+    $apkHash = (Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash
+
+    $phase = 'canonical artifact creation'
+    $canonicalApkPath = Get-CanonicalApkPath $repositoryRoot $apkIdentity.VersionName
+    Copy-Item -LiteralPath $apkPath -Destination $canonicalApkPath -Force
+    $canonicalFile = Get-Item -LiteralPath $canonicalApkPath
+    if ($canonicalFile.Length -le 0 -or $canonicalFile.Length -ne $apkFile.Length) {
+        Fail 'Canonical production APK is missing, empty, or has an unexpected size.'
+    }
+    $canonicalHash = (Get-FileHash -LiteralPath $canonicalApkPath -Algorithm SHA256).Hash
+    if ($canonicalHash -ne $apkHash) {
+        Fail 'Canonical production APK hash does not match the verified build output.'
+    }
+    Remove-Item -LiteralPath $apkPath -Force
+    if (Test-Path -LiteralPath $apkPath) {
+        Fail 'Generic Gradle APK output could not be removed after canonicalization.'
+    }
+    $apkPath = $canonicalApkPath
     $apkFile = Get-Item -LiteralPath $apkPath
     $apkHash = (Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash
 

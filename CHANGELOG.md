@@ -1,5 +1,12 @@
 # Changelog
 
+## EduFlow 1.2.1
+
+- Corrected edits to recurring PRIVATE lesson series, including weekday changes, enable/disable behavior, and whole-series deletion.
+- Improved navigation to the PRIVATE lessons section.
+- Fixed non-school-day reason text layout and restored swipe navigation on non-school days.
+- Additional bug fixes and stability improvements.
+
 ## EduFlow 1.2.0
 
 - Simplified primary navigation to Разписание, Задачи, and Още; moved Subjects under Още.

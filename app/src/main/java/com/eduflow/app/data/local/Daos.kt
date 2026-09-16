@@ -84,6 +84,8 @@ interface LessonInstanceDao {
     fun observePrivateForDateRange(from: LocalDate, to: LocalDate): Flow<List<LessonInstance>>
     @Query("SELECT * FROM lesson_instances WHERE sourcePrivateLessonId = :sourceId AND actualDate BETWEEN :from AND :to ORDER BY actualDate, actualStartTime")
     suspend fun getForPrivateSourceInRange(sourceId: Long, from: LocalDate, to: LocalDate): List<LessonInstance>
+    @Query("DELETE FROM lesson_instances WHERE sourcePrivateLessonId = :sourceId AND actualDate >= :from")
+    suspend fun deleteFutureForPrivateSource(sourceId: Long, from: LocalDate)
     @Query("SELECT * FROM lesson_instances WHERE subjectId = :subjectId ORDER BY actualDate DESC, actualStartTime DESC")
     fun observeForSubject(subjectId: Long): Flow<List<LessonInstance>>
     @Query("SELECT * FROM lesson_instances") fun observeAll(): Flow<List<LessonInstance>>

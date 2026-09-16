@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.eduflow.app.data.TaskLogic
 import com.eduflow.app.data.TaskLifecycleRepository
+import com.eduflow.app.data.PrivateLessonRepository
 import com.eduflow.app.EduFlowApplication
 import com.eduflow.app.data.AcademicYearSettings
 import com.eduflow.app.data.AcademicYearSettingsRepository
@@ -27,11 +28,14 @@ import java.time.LocalDateTime
 class PrivateLessonsViewModel(private val database: EduFlowDatabase) : ViewModel() {
     val lessons = database.recurringPrivateLessonDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val subjects = database.subjectDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    fun toggle(lesson: RecurringPrivateLesson) = viewModelScope.launch { database.recurringPrivateLessonDao().update(lesson.copy(enabled = !lesson.enabled)) }
+    private val repository = PrivateLessonRepository(database)
+    fun toggle(lesson: RecurringPrivateLesson) = viewModelScope.launch {
+        repository.setEnabled(lesson, !lesson.enabled)
+        com.eduflow.app.notifications.NotificationReconciliation(EduFlowApplication.appContext).requestReconciliation()
+    }
     fun delete(lesson: RecurringPrivateLesson) = viewModelScope.launch {
-        val future = database.lessonInstanceDao().getForPrivateSourceInRange(lesson.id, LocalDate.now(), LocalDate.of(2100,1,1))
-        com.eduflow.app.data.NotificationSettingsRepository(EduFlowApplication.appContext).suppressDeletedPrivate(future)
-        database.recurringPrivateLessonDao().delete(lesson)
+        repository.deleteSeries(lesson)
+        com.eduflow.app.notifications.NotificationReconciliation(EduFlowApplication.appContext).requestReconciliation()
     }
 }
 
@@ -39,14 +43,21 @@ class PrivateLessonEditorViewModel(private val database: EduFlowDatabase, id: Lo
     val lesson = if (id == null) kotlinx.coroutines.flow.MutableStateFlow<RecurringPrivateLesson?>(null) else database.recurringPrivateLessonDao().observeById(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val oneOffLesson = if (oneOffId == null) kotlinx.coroutines.flow.MutableStateFlow<LessonInstance?>(null) else database.lessonInstanceDao().observeById(oneOffId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val subjects = database.subjectDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val repository = PrivateLessonRepository(database)
     fun save(lesson: RecurringPrivateLesson, onSaved: () -> Unit) = viewModelScope.launch {
         require(!lesson.privateLessonName.isNullOrBlank()) { "PRIVATE recurring lessons require a name" }
         require(lesson.weekday in 1..7)
         require(lesson.intervalWeeks in 1..2)
         require(lesson.endTime.isAfter(lesson.startTime))
         require(lesson.endDate == null || !lesson.endDate.isBefore(lesson.startDate))
-        database.recurringPrivateLessonDao().upsert(lesson)
+        repository.save(lesson)
+        com.eduflow.app.notifications.NotificationReconciliation(EduFlowApplication.appContext).requestReconciliation()
         onSaved()
+    }
+    fun deleteSeries(lesson: RecurringPrivateLesson, onDeleted: () -> Unit) = viewModelScope.launch {
+        repository.deleteSeries(lesson)
+        com.eduflow.app.notifications.NotificationReconciliation(EduFlowApplication.appContext).requestReconciliation()
+        onDeleted()
     }
     fun createOneOff(lesson: LessonInstance, onSaved: () -> Unit) = viewModelScope.launch {
         require(lesson.kind == LessonKind.PRIVATE)

@@ -60,7 +60,7 @@ Plan each school week, keep coursework connected to the lessons it belongs to, a
 
 ## Download and installation
 
-Download the latest APK from the repository’s Releases page. Normal users should install **`app-release.apk`**; an AAB is not an artifact for direct sideloading.
+Download the latest APK from the repository’s Releases page. Normal users should install the versioned **`EduFlow-v<version>.apk`**; an AAB is not an artifact for direct sideloading.
 
 1. Open the latest GitHub Release.
 2. Download the APK.

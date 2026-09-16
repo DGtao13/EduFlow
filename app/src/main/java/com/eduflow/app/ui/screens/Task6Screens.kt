@@ -118,12 +118,12 @@ fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController
                         Text("${weekdayText(lesson.weekday)} · ${lesson.startTime.format(privateTimeFormat)}–${lesson.endTime.format(privateTimeFormat)} · ${stringResource(if (lesson.intervalWeeks == 2) R.string.every_two_weeks else R.string.every_week)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = lesson.enabled, onCheckedChange = { vm.toggle(lesson) })
-                    IconButton(onClick = { deleting = lesson }) { Icon(Icons.Default.Delete, stringResource(R.string.delete)) }
+                    IconButton(onClick = { deleting = lesson }) { Icon(Icons.Default.Delete, stringResource(R.string.delete_private_lesson_series)) }
                 }
             }
         }
     }
-    deleting?.let { lesson -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text(stringResource(R.string.delete_private_lesson)) }, text = { Text(stringResource(R.string.private_delete_message)) }, confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete), onClick = { vm.delete(lesson); deleting = null }) }, dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } }) }
+    deleting?.let { lesson -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text(stringResource(R.string.delete_private_lesson)) }, text = { Text(stringResource(R.string.private_delete_message)) }, confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete_private_lesson_series), onClick = { vm.delete(lesson); deleting = null }) }, dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } }) }
 }
 
 @Composable
@@ -153,6 +153,7 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
     var locationText by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.actualRoom.orEmpty() else recurringBase?.roomOverride.orEmpty()) }
     var enabled by remember(baseId) { mutableStateOf(recurringBase?.enabled ?: true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var deletingSeries by remember { mutableStateOf(false) }
     var selector by remember { mutableStateOf<PrivateLessonSelector?>(null) }
     var subjectSearch by remember { mutableStateOf("") }
     var datePickerTarget by remember { mutableStateOf<PrivateDatePickerTarget?>(null) }
@@ -191,6 +192,11 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
                 if (endDate != null) TextButton(onClick = { endDate = null }) { Text(stringResource(R.string.private_no_end_date)) }
                 TimeRangeField(runCatching { LocalTime.parse(start) }.getOrNull(), runCatching { LocalTime.parse(end) }.getOrNull()) { s, e -> start = s.format(privateTimeFormat); end = e.format(privateTimeFormat); error = null }
                 Row(verticalAlignment = Alignment.CenterVertically) { Switch(enabled, { enabled = it }); Text(stringResource(R.string.active), Modifier.padding(start = 8.dp)) }
+                if (recurringBase != null) TextButton(
+                    onClick = { deletingSeries = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(stringResource(R.string.delete_private_lesson_series)) }
             }
             error?.let { Text(stringResource(when (it) { "NAME" -> R.string.private_lesson_name_required; "SUBJECT" -> R.string.choose_subject; "TIME_ORDER" -> R.string.private_time_order_invalid; else -> R.string.private_invalid }), color = MaterialTheme.colorScheme.error) }
             Button(onClick = {
@@ -202,6 +208,16 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
             }) { Text(stringResource(R.string.save)) }
         }
     }
+    if (deletingSeries) AlertDialog(
+        onDismissRequest = { deletingSeries = false },
+        title = { Text(stringResource(R.string.delete_private_lesson)) },
+        text = { Text(stringResource(R.string.private_delete_message)) },
+        confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete_private_lesson_series_confirm), onClick = {
+            recurringBase?.let { source -> vm.deleteSeries(source) { navController.popBackStack() } }
+            deletingSeries = false
+        }) },
+        dismissButton = { TextButton(onClick = { deletingSeries = false }) { Text(stringResource(R.string.cancel)) } }
+    )
     selector?.let { activeSelector ->
         ModalBottomSheet(onDismissRequest = { selector = null }) {
             when (activeSelector) {

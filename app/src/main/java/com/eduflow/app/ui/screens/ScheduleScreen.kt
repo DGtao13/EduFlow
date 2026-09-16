@@ -99,7 +99,10 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
@@ -314,13 +317,43 @@ private fun SchedulePager(
             .sortedBy { it.first }
             .mapIndexed { index, (start, end) -> TimetablePeriodRow(index + 1, start, end) }
     }
+    val textMeasurer = rememberTextMeasurer()
+    val noSchoolReasonStyle = MaterialTheme.typography.labelSmall
+    val headerHeight = remember(
+        previousData.exceptions,
+        settledData.exceptions,
+        nextData.exceptions,
+        density,
+        noSchoolReasonStyle
+    ) {
+        val reasonWidthPx = with(density) { (timetableColumnWidth - 14.dp).roundToPx() }
+        val maxReasonHeightPx = listOf(previousData, settledData, nextData)
+            .flatMap { it.exceptions }
+            .filter { it.type == com.eduflow.app.data.local.DayExceptionType.NO_SCHOOL }
+            .map { it.title ?: "" }
+            .maxOfOrNull { reason ->
+                textMeasurer.measure(
+                    text = AnnotatedString(reason.ifBlank { "Няма учебни занятия" }),
+                    style = noSchoolReasonStyle,
+                    constraints = Constraints(maxWidth = reasonWidthPx),
+                    maxLines = noSchoolReasonMaxLines,
+                    overflow = TextOverflow.Ellipsis
+                ).size.height
+            } ?: 0
+        with(density) {
+            maxOf(
+                timetableHeaderMinHeight.toPx(),
+                timetableHeaderTopRowHeight.toPx() + timetableHeaderContentVerticalPadding.toPx() + maxReasonHeightPx
+            ).toDp()
+        }
+    }
     val eventAreaHeight = remember(previousData.events, settledData.events, nextData.events) {
         val weeks = listOf(previousData, settledData, nextData)
         timetableEventLaneHeight(
             weeks.maxOfOrNull { data -> data.events.groupBy { it.date }.values.maxOfOrNull { it.size } ?: 0 } ?: 0
         )
     }
-    val gridHeight = timetableHeaderHeight + eventAreaHeight + (timetableCellHeight * periodRows.size)
+    val gridHeight = headerHeight + eventAreaHeight + (timetableCellHeight * periodRows.size)
     val settledWeekRangeState = remember(settledMonday, academicYear) {
         classifySchoolWeek(settledMonday, academicYear.startDate, academicYear.endDate)
     }
@@ -345,6 +378,17 @@ private fun SchedulePager(
             },
             onSelectDate = { datePickerOpen = true }
         )
+    }
+
+    val handlePagerHandoffEnd: (Int, Float) -> Unit = { startPage, accumulatedPagerScroll ->
+        val target = pagerHandoffTarget(
+            startPage = startPage,
+            accumulatedPagerScroll = accumulatedPagerScroll,
+            pageSizePx = pagerState.layoutInfo.pageSize,
+            minimumPage = 0,
+            maximumPage = range.pageCount - 1
+        )
+        scope.launch { pagerState.animateScrollToPage(target) }
     }
 
     if (datePickerOpen) {
@@ -438,6 +482,7 @@ private fun SchedulePager(
                         onPrivateDay = { date -> scope.launch { privateAnchors[date]?.bringIntoView() } },
                         privateLessonCounts = privateAgendaCounts(pageData.privateLessons),
                         periodRows = periodRows,
+                        headerHeight = headerHeight,
                         eventAreaHeight = eventAreaHeight,
                         innerScrollState = innerScroll,
                         verticalScrollState = scheduleScrollState,
@@ -445,16 +490,7 @@ private fun SchedulePager(
                         flingDecay = flingDecay,
                         minimumFlingVelocity = minimumFlingVelocity,
                         timetableFlingController = timetableFlingController,
-                        onPagerHandoffEnd = { startPage, accumulatedPagerScroll ->
-                            val target = pagerHandoffTarget(
-                                startPage = startPage,
-                                accumulatedPagerScroll = accumulatedPagerScroll,
-                                pageSizePx = pagerState.layoutInfo.pageSize,
-                                minimumPage = 0,
-                                maximumPage = range.pageCount - 1
-                            )
-                            scope.launch { pagerState.animateScrollToPage(target) }
-                        },
+                        onPagerHandoffEnd = handlePagerHandoffEnd,
                         onOpenLesson = { navController.navigate("lesson/$it") },
                         onAddTask = { navController.navigate("task/new/$it") },
                         onToggleLesson = viewModel::toggleCancellation,
@@ -471,14 +507,29 @@ private fun SchedulePager(
                             todayRequest = null
                         }
                     }
-                    OutsideAcademicWeekContent(
-                        state = weekRangeState,
-                        weekMonday = pageMonday,
-                        academicYear = academicYear,
-                        events = pageData.events,
-                        onSaveEvent = viewModel::saveEvent,
-                        onDeleteEvent = viewModel::deleteEvent
-                    )
+                    val outsideInnerScroll = innerStates.getOrPut(pageMonday) { ScrollState(0) }
+                    Box(
+                        Modifier.fillMaxSize()
+                            .coordinatedTimetablePan(
+                                horizontalScrollState = outsideInnerScroll,
+                                verticalScrollState = scheduleScrollState,
+                                pagerState = pagerState,
+                                flingDecay = flingDecay,
+                                minimumFlingVelocity = minimumFlingVelocity,
+                                timetableFlingController = timetableFlingController,
+                                onPagerHandoffEnd = handlePagerHandoffEnd
+                            )
+                            .horizontalScroll(outsideInnerScroll, enabled = false)
+                    ) {
+                        OutsideAcademicWeekContent(
+                            state = weekRangeState,
+                            weekMonday = pageMonday,
+                            academicYear = academicYear,
+                            events = pageData.events,
+                            onSaveEvent = viewModel::saveEvent,
+                            onDeleteEvent = viewModel::deleteEvent
+                        )
+                    }
                 }
                 }
             }
@@ -553,17 +604,22 @@ private fun PrivateLessonsWeekSection(
         Text(stringResource(R.string.private_lessons), style = MaterialTheme.typography.titleMedium)
         groups.forEach { group ->
             val target = anchors[group.date]
-            Text(privateAgendaDateHeading(group.date), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp).then(if (group.lessons.size > 1 && target != null) Modifier.bringIntoViewRequester(target) else Modifier))
-            group.lessons.forEach { lesson ->
-                key(lesson.id) {
-                    PrivateAppointmentCard(
-                        lesson = lesson,
-                        subject = subjects[lesson.subjectId],
-                        now = now,
-                        modifier = if (group.lessons.size == 1 && target != null) Modifier.bringIntoViewRequester(target) else Modifier,
-                        onOpen = { onOpen(lesson.id) },
-                        onLongPress = { onLongPress(lesson) }
-                    )
+            Column(
+                Modifier.fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .then(if (target != null) Modifier.bringIntoViewRequester(target) else Modifier)
+            ) {
+                Text(privateAgendaDateHeading(group.date), style = MaterialTheme.typography.titleSmall)
+                group.lessons.forEach { lesson ->
+                    key(lesson.id) {
+                        PrivateAppointmentCard(
+                            lesson = lesson,
+                            subject = subjects[lesson.subjectId],
+                            now = now,
+                            onOpen = { onOpen(lesson.id) },
+                            onLongPress = { onLongPress(lesson) }
+                        )
+                    }
                 }
             }
         }
@@ -753,7 +809,10 @@ private fun SetupState(message: String, action: String, onAction: () -> Unit, se
 }
 
 private val timetableColumnWidth = 196.dp
-private val timetableHeaderHeight = 72.dp
+private val timetableHeaderMinHeight = 72.dp
+private val timetableHeaderTopRowHeight = 48.dp
+private val timetableHeaderContentVerticalPadding = 11.dp
+private const val noSchoolReasonMaxLines = 4
 private val timetableCellHeight = 86.dp
 private val timetableCellShape = RoundedCornerShape(8.dp)
 private val timetableEventCardHeight = 48.dp
@@ -797,6 +856,7 @@ private fun ActualWeekGrid(
     onDeleteEvent: (TimetableEvent) -> Unit,
     periodRows: List<TimetablePeriodRow>,
     eventAreaHeight: androidx.compose.ui.unit.Dp,
+    headerHeight: androidx.compose.ui.unit.Dp,
     innerScrollState: ScrollState,
     verticalScrollState: ScrollState,
     pagerState: PagerState,
@@ -840,6 +900,7 @@ private fun ActualWeekGrid(
                     onOpenLesson = onOpenLesson,
                     onAddTask = onAddTask,
                     eventAreaHeight = eventAreaHeight,
+                    headerHeight = headerHeight,
                     onToggleLesson = onToggleLesson,
                     onSetBlockCancellation = onSetBlockCancellation,
                     onCancelBlock = onCancelBlock,
@@ -1040,6 +1101,7 @@ private fun TimetableDayColumn(
     onOpenLesson: (Long) -> Unit,
     onAddTask: (Long) -> Unit,
     eventAreaHeight: androidx.compose.ui.unit.Dp,
+    headerHeight: androidx.compose.ui.unit.Dp,
     onToggleLesson: (LessonInstance) -> Unit,
     onSetBlockCancellation: (LessonInstance, CancellationState) -> Unit,
     onCancelBlock: (List<LessonInstance>) -> Unit,
@@ -1062,6 +1124,7 @@ private fun TimetableDayColumn(
 
     Column(Modifier.width(timetableColumnWidth)) {
         TimetableDayHeader(date, exception, privateLessonCount, menuOpen, { menuOpen = true }, { menuOpen = false },
+            headerHeight = headerHeight,
             onPrivateDay = onPrivateDay,
             onRestoreSchool = { onRestoreSchool(date) },
             onMarkNoSchool = { noSchoolDialog = true },
@@ -1156,12 +1219,13 @@ private fun TimetableDayHeader(
     onCancelBlock: () -> Unit,
     onAddEvent: () -> Unit,
     canCancel: Boolean,
-    onPrivateDay: () -> Unit
+    onPrivateDay: () -> Unit,
+    headerHeight: androidx.compose.ui.unit.Dp
 ) {
     val noSchool = exception?.type == com.eduflow.app.data.local.DayExceptionType.NO_SCHOOL
     val headerColor = if (noSchool) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
     Column(
-        Modifier.height(timetableHeaderHeight)
+        Modifier.height(headerHeight)
             .padding(horizontal = 2.dp, vertical = 2.dp)
             .background(headerColor, timetableCellShape)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .34f), timetableCellShape)
@@ -1198,7 +1262,13 @@ private fun TimetableDayHeader(
                 }
             }
         }
-        if (noSchool) Text(exception?.title ?: stringResource(R.string.no_school), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (noSchool) Text(
+            exception?.title ?: stringResource(R.string.no_school),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = noSchoolReasonMaxLines,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1437,7 +1507,7 @@ private fun CancelBlockDialog(lessons: List<LessonInstance>, onDismiss: () -> Un
 @Composable
 private fun NoSchoolDialog(onDismiss: () -> Unit, onConfirm: (String?) -> Unit) {
     var reason by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.mark_no_school_title)) }, text = { OutlinedTextField(reason, { reason = it }, label = { Text(stringResource(R.string.reason_optional)) }, singleLine = true) }, confirmButton = { TextButton(onClick = { onConfirm(reason.trim().ifBlank { null }) }) { Text(stringResource(R.string.mark_no_school)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.mark_no_school_title)) }, text = { OutlinedTextField(reason, { reason = it }, label = { Text(stringResource(R.string.reason_optional)) }, singleLine = false, maxLines = noSchoolReasonMaxLines) }, confirmButton = { TextButton(onClick = { onConfirm(reason.trim().ifBlank { null }) }) { Text(stringResource(R.string.mark_no_school)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
 }
 
 @Composable

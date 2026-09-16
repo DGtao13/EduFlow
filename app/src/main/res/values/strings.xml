@@ -298,8 +298,10 @@
     <string name="school_lesson">Училищен час</string>
     <string name="no_private_lessons">Няма добавени частни уроци.</string>
     <string name="no_recurring_private_lessons">Няма добавени повтарящи се частни уроци.</string>
-    <string name="delete_private_lesson">Изтриване на частен урок?</string>
-    <string name="private_delete_message">Историческите частни уроци и свързаните задачи ще бъдат запазени.</string>
+    <string name="delete_private_lesson">Изтриване на поредица</string>
+    <string name="private_delete_message">Ще бъде изтрита цялата поредица и бъдещите частни уроци. Историческите уроци и свързаните задачи ще бъдат запазени.</string>
+    <string name="delete_private_lesson_series">Изтрий цялата поредица</string>
+    <string name="delete_private_lesson_series_confirm">Изтрий поредицата</string>
     <string name="subject">Предмет</string>
     <string name="weekday">Ден от седмицата</string>
     <string name="recurrence">Повтаряне</string>

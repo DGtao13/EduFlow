@@ -28,6 +28,65 @@ class PrivateLessonRepository(private val database: EduFlowDatabase) {
             }
         }
     }
+
+    /**
+     * A recurring definition is the series identity.  Its materialized future rows
+     * must be reconciled when that definition changes; insert-if-absent alone would
+     * otherwise retain dates that no longer belong to the series.
+     */
+    suspend fun save(definition: RecurringPrivateLesson, today: LocalDate = LocalDate.now()): Long = database.withTransaction {
+        val previousFuture = if (definition.id == 0L) emptyList() else database.lessonInstanceDao()
+            .getForPrivateSourceInRange(definition.id, today, LocalDate.of(2100, 1, 1))
+        // Room's @Upsert return is an insert row id, not a stable existing-row id.
+        // On editor updates it must not be used for source-owned cleanup.
+        val sourceId = if (definition.id == 0L) {
+            database.recurringPrivateLessonDao().upsert(definition)
+        } else {
+            database.recurringPrivateLessonDao().update(definition)
+            definition.id
+        }
+        // Use the same authoritative source-owned cleanup as disable/delete. The
+        // former selective loop could leave stale materialized weekday rows visible
+        // until a later disable/re-enable performed this bulk cleanup.
+        database.lessonInstanceDao().deleteFutureForPrivateSource(sourceId, today)
+        val saved = database.recurringPrivateLessonDao().getById(sourceId) ?: return@withTransaction sourceId
+        val subjectName = saved.subjectId?.let { id -> database.subjectDao().getAll().firstOrNull { it.id == id }?.name }
+        // Recreate affected materialized weeks immediately, carrying forward a
+        // still-valid occurrence's per-instance cancellation and annotations.
+        val preserved = previousFuture.associateBy { it.actualDate }
+        if (saved.enabled) {
+            (previousFuture.map { ScheduleCycle.mondayOf(it.actualDate) } +
+                listOf(ScheduleCycle.mondayOf(today), ScheduleCycle.mondayOf(today.plusWeeks(1))))
+                .distinct().forEach { monday ->
+                List(7) { monday.plusDays(it.toLong()) }
+                    .filter { PrivateLessonRecurrence.occursOn(saved, it) }
+                    .forEach { date ->
+                        val old = preserved[date]
+                        database.lessonInstanceDao().insertIfAbsent(recurringPrivateOccurrence(saved, date, subjectName).copy(
+                            cancellationState = old?.cancellationState ?: com.eduflow.app.data.local.CancellationState.ACTIVE,
+                            topic = old?.topic,
+                            notes = old?.notes
+                        ))
+                    }
+            }
+        }
+        sourceId
+    }
+
+    suspend fun setEnabled(definition: RecurringPrivateLesson, enabled: Boolean, today: LocalDate = LocalDate.now()) = database.withTransaction {
+        database.recurringPrivateLessonDao().update(definition.copy(enabled = enabled))
+        // Materialized rows are not the authority. Remove future rows so disabling
+        // cannot leave a visible/schedulable PRIVATE lesson; enabling rematerializes
+        // only dates that satisfy the same source definition.
+        database.lessonInstanceDao().deleteFutureForPrivateSource(definition.id, today)
+    }
+
+    suspend fun deleteSeries(definition: RecurringPrivateLesson, today: LocalDate = LocalDate.now()) = database.withTransaction {
+        // Delete owned future occurrences before deleting the source. Deleting the
+        // source first would SET NULL and turn them into apparent one-time lessons.
+        database.lessonInstanceDao().deleteFutureForPrivateSource(definition.id, today)
+        database.recurringPrivateLessonDao().delete(definition)
+    }
 }
 
 fun recurringPrivateOccurrence(definition: RecurringPrivateLesson, date: LocalDate, subjectName: String?): LessonInstance = LessonInstance(

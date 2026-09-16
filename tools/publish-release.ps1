@@ -22,6 +22,13 @@ function Invoke-GitCapture([string]$RepositoryRoot, [string[]]$Arguments) {
     return [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
 }
 
+function Get-CanonicalApkFileName([string]$ReleaseVersion) {
+    if ([string]::IsNullOrWhiteSpace($ReleaseVersion) -or $ReleaseVersion -notmatch '^\d+\.\d+\.\d+$') {
+        Fail "Release version '$ReleaseVersion' is not a stable X.Y.Z release version."
+    }
+    return "EduFlow-v$ReleaseVersion.apk"
+}
+
 function Resolve-GitHubCli {
     $candidates = [Collections.Generic.List[string]]::new()
     $pathCommand = Get-Command 'gh' -ErrorAction SilentlyContinue
@@ -60,7 +67,11 @@ try {
     $tag = "v$Version"
     $title = "EduFlow v$Version"
     $notesPath = Join-Path $repositoryRoot "docs\release-notes-v$Version.md"
-    $apkPath = Join-Path $repositoryRoot 'app\build\outputs\apk\release\app-release.apk'
+    $apkFileName = Get-CanonicalApkFileName $Version
+    $apkPath = Join-Path $repositoryRoot "app\build\outputs\apk\release\$apkFileName"
+    if ([IO.Path]::GetFileName($apkPath) -cne $apkFileName) {
+        Fail "Resolved APK path does not match the requested release version: $apkPath"
+    }
     if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf) -or (Get-Item -LiteralPath $notesPath).Length -le 0) {
         Fail "Required release notes are missing or empty: $notesPath"
     }
@@ -104,8 +115,8 @@ try {
         Fail 'Created release metadata does not match the required stable release.'
     }
     $assets = @($release.assets)
-    if ($assets.Count -ne 1 -or $assets[0].name -ne 'app-release.apk') {
-        Fail 'Created release does not contain exactly the required app-release.apk asset.'
+    if ($assets.Count -ne 1 -or $assets[0].name -cne $apkFileName) {
+        Fail "Created release does not contain exactly the required $apkFileName asset."
     }
     $localSize = (Get-Item -LiteralPath $apkPath).Length
     if ([int64]$assets[0].size -ne $localSize) {

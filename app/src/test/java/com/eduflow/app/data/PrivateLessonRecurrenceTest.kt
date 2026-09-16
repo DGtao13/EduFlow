@@ -41,6 +41,15 @@ class PrivateLessonRecurrenceTest {
         assertFalse(PrivateLessonRecurrence.occursOn(definition(enabled = false), LocalDate.of(2026, 9, 13)))
     }
 
+    @Test fun weekdayEditStopsMatchingTheOldFutureOccurrenceDates() {
+        val monday = definition().copy(weekday = 1, startDate = LocalDate.of(2026, 9, 14))
+        val wednesday = monday.copy(weekday = 3)
+        val oldDates = listOf(LocalDate.of(2026, 9, 14), LocalDate.of(2026, 9, 21))
+        assertTrue(oldDates.all { PrivateLessonRecurrence.occursOn(monday, it) })
+        assertTrue(oldDates.none { PrivateLessonRecurrence.occursOn(wednesday, it) })
+        assertTrue(PrivateLessonRecurrence.occursOn(wednesday, LocalDate.of(2026, 9, 16)))
+    }
+
     @Test fun recurringOccurrenceKeepsItsOwnOverridesAndGetsSafePrivateIdentity() {
         val recurring = definition().copy(privateLessonName = "Мрежова практика", teacherOverride = "Частен преподавател", roomOverride = "При преподавателя", privateLocationKind = PrivateLessonLocationKind.IN_PERSON)
         val occurrence = recurringPrivateOccurrence(recurring, LocalDate.of(2026, 9, 13), "Математика")
