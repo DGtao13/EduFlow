@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -58,7 +59,7 @@ import com.eduflow.app.data.local.EduFlowDatabase
 import com.eduflow.app.data.local.Subject
 import com.eduflow.app.ui.viewmodel.DatabaseViewModelFactory
 import com.eduflow.app.ui.viewmodel.SubjectViewModel
-import com.eduflow.app.ui.EduFlowRootTopAppBar
+import com.eduflow.app.ui.EduFlowChildTopAppBar
 import androidx.navigation.NavController
 
 private val subjectColors = listOf(
@@ -84,7 +85,10 @@ fun SubjectsManagementScreen(database: EduFlowDatabase, navController: NavContro
     var deleteBlocked by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { EduFlowRootTopAppBar(stringResource(R.string.nav_subjects)) },
+        topBar = { EduFlowChildTopAppBar(
+            title = stringResource(R.string.nav_subjects),
+            navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }
+        ) },
         floatingActionButton = {
             if (subjects.isNotEmpty()) {
             FloatingActionButton(onClick = { editing = null; showEditor = true }) {

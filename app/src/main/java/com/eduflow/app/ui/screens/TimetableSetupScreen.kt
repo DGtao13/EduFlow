@@ -60,6 +60,7 @@ import com.eduflow.app.data.local.ScheduleSlot
 import com.eduflow.app.data.local.ScheduleTemplate
 import com.eduflow.app.data.local.Subject
 import com.eduflow.app.ui.viewmodel.DatabaseViewModelFactory
+import com.eduflow.app.ui.viewmodel.ScheduleViewModel
 import com.eduflow.app.ui.viewmodel.TimetableViewModel
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.stringArrayResource
@@ -79,17 +80,25 @@ private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 @Composable
 fun TimetableSetupScreen(database: EduFlowDatabase, navController: NavController) {
     val viewModel: TimetableViewModel = viewModel(factory = DatabaseViewModelFactory(database))
+    val scheduleViewModel: ScheduleViewModel = viewModel(factory = DatabaseViewModelFactory(database))
     val templates by viewModel.templates.collectAsState()
+    val monday by scheduleViewModel.weekMonday.collectAsState()
+    val configuration by scheduleViewModel.configuration.collectAsState()
+    val cycleEntries by scheduleViewModel.cycleEntries.collectAsState()
     var templateEditor by remember { mutableStateOf<ScheduleTemplate?>(null) }
     var showTemplateEditor by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<ScheduleTemplate?>(null) }
+    var cycleDialog by remember { mutableStateOf(false) }
 
     Scaffold(topBar = { EduFlowChildTopAppBar(title = stringResource(R.string.timetable_setup_title), navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 if (templates.isEmpty()) Text(stringResource(R.string.template_empty_message))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                    Button(onClick = { templateEditor = null; showTemplateEditor = true }) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.add_template), Modifier.padding(start = 6.dp)) }
+                Column(modifier = Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { templateEditor = null; showTemplateEditor = true }) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.add_template), Modifier.padding(start = 6.dp)) }
+                        OutlinedButton(onClick = { cycleDialog = true }) { Text(stringResource(R.string.cycle)) }
+                    }
                     if (templates.none { it.name.equals("Седмица А", true) } && templates.none { it.name.equals("Седмица Б", true) }) {
                         TextButton(onClick = { viewModel.saveTemplate(ScheduleTemplate(name = "Седмица А")); viewModel.saveTemplate(ScheduleTemplate(name = "Седмица Б")) }) { Text(stringResource(R.string.create_weeks)) }
                     }
@@ -120,6 +129,16 @@ fun TimetableSetupScreen(database: EduFlowDatabase, navController: NavController
     }
     if (showTemplateEditor) {
         TemplateEditorDialog(templateEditor, { showTemplateEditor = false }, { viewModel.saveTemplate(it); showTemplateEditor = false })
+    }
+    if (cycleDialog) {
+        CycleConfigurationDialog(
+            monday = monday,
+            templates = templates,
+            existingConfiguration = configuration,
+            existingEntries = cycleEntries,
+            onDismiss = { cycleDialog = false },
+            onSave = { anchor, templateId, orderedIds -> scheduleViewModel.configureCycle(anchor, templateId, orderedIds) }
+        )
     }
     deleting?.let { template -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text(stringResource(R.string.delete_template_question, template.name)) }, text = { Text(stringResource(R.string.template_delete_message)) }, confirmButton = { DestructiveConfirmationButton(stringResource(R.string.delete), onClick = { viewModel.deleteTemplate(template); deleting = null }) }, dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } }) }
 }

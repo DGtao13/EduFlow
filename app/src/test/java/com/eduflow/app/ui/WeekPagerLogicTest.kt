@@ -68,4 +68,46 @@ class WeekPagerLogicTest {
     @Test fun freshActiveWeekUsesTodayWhenNoOffsetExists() {
         assertEquals(784, resolveActiveInnerOffset(savedOffset = null, explicitTodayOffset = null, freshTodayOffset = 784))
     }
+
+    @Test fun diagonalPanRetainsBothAxisComponents() {
+        assertEquals(TimetablePanDelta(horizontal = 24f, vertical = 18f), timetablePanDelta(-24f, -18f))
+    }
+
+    @Test fun pagerReceivesOnlyUnconsumedHorizontalMovement() {
+        assertEquals(12f, pagerBoundaryHandoffDelta(-30f, 4f, 30f, 18f))
+        assertEquals(0f, pagerBoundaryHandoffDelta(-30f, -42f, 30f, 0f))
+    }
+
+    @Test fun pagerHandoffUsesTheExistingThirtyPercentThreshold() {
+        assertEquals(4, pagerHandoffTarget(4, 29f, 100, 0, 8))
+        assertEquals(5, pagerHandoffTarget(4, 30f, 100, 0, 8))
+        assertEquals(3, pagerHandoffTarget(4, -30f, 100, 0, 8))
+    }
+
+    @Test fun acceptedFlingVelocityPreservesBothAxesAndScrollDirection() {
+        assertEquals(
+            TimetableFlingVelocity(horizontal = 900f, vertical = -700f),
+            timetableFlingVelocity(pointerVelocityX = -900f, pointerVelocityY = 700f, minimumFlingVelocity = 50f)
+        )
+    }
+
+    @Test fun slowVelocityDoesNotStartMomentum() {
+        val velocity = timetableFlingVelocity(pointerVelocityX = 49f, pointerVelocityY = -20f, minimumFlingVelocity = 50f)
+        assertTrue(velocity.isZero)
+        assertFalse(shouldStartTimetableFling(true, true, false, velocity))
+    }
+
+    @Test fun flingRequiresReleasedPostSlopDragAndNoPagerHandoff() {
+        val velocity = TimetableFlingVelocity(horizontal = 600f, vertical = 400f)
+        assertTrue(shouldStartTimetableFling(true, true, false, velocity))
+        assertFalse(shouldStartTimetableFling(false, true, false, velocity))
+        assertFalse(shouldStartTimetableFling(true, false, false, velocity))
+        assertFalse(shouldStartTimetableFling(true, true, true, velocity))
+    }
+
+    @Test fun eachFlingAxisStopsOnlyWhenItsRequestedMovementIsUnconsumed() {
+        assertFalse(flingAxisRemainsActive(requestedDelta = 12f, consumedDelta = 0f))
+        assertTrue(flingAxisRemainsActive(requestedDelta = -9f, consumedDelta = -9f))
+        assertFalse(flingAxisRemainsActive(requestedDelta = 6f, consumedDelta = 0f))
+    }
 }

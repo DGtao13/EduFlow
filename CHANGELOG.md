@@ -1,5 +1,12 @@
 # Changelog
 
+## EduFlow 1.2.0
+
+- Simplified primary navigation to Разписание, Задачи, and Още; moved Subjects under Още.
+- Moved Cycle configuration into Schedule Setup and kept Current Week centered in the schedule navigator.
+- Added natural two-dimensional timetable panning with horizontal, vertical, and diagonal movement.
+- Added native-style timetable momentum that can be stopped directly by touch, while preserving taps, long presses, and edge-drag week navigation.
+
 ## EduFlow 1.1.0
 
 - Added sharing for individual tasks and homework between EduFlow installations.

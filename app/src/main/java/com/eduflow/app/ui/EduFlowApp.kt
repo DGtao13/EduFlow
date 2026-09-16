@@ -6,7 +6,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.List
@@ -58,7 +57,6 @@ private enum class TopLevelDestination(
 ) {
     SCHEDULE("schedule", R.string.nav_schedule, Icons.AutoMirrored.Filled.List),
     TASKS("tasks", R.string.nav_tasks, Icons.Default.CheckCircle),
-    SUBJECTS("subjects", R.string.nav_subjects, Icons.Default.AccountBox),
     MORE("more", R.string.nav_more, Icons.Default.MoreVert)
 }
 
@@ -141,7 +139,7 @@ private fun EduFlowSessionApp(externalRoute: ExternalRouteEvent?, onExternalRout
             composable("onboarding") { SetupGuideScreen(navController, firstUse = true) }
             composable("setup_guide") { SetupGuideScreen(navController, firstUse = false) }
             composable(TopLevelDestination.TASKS.route) { TasksScreen(database, navController) }
-            composable(TopLevelDestination.SUBJECTS.route) { SubjectsManagementScreen(database, navController) }
+            composable("subjects") { SubjectsManagementScreen(database, navController) }
             composable(TopLevelDestination.MORE.route) { MoreScreen(navController) }
             composable("timetable_setup") { TimetableSetupScreen(database, navController) }
             composable("timetable_setup/{templateId}") { entry ->

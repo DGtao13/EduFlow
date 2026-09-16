@@ -27,6 +27,7 @@
     <string name="nav_schedule">Разписание</string>
     <string name="nav_tasks">Задачи</string>
     <string name="nav_subjects">Предмети</string>
+    <string name="subjects_supporting">Управление на предметите в разписанието</string>
     <string name="nav_more">Още</string>
     <string name="schedule_title">Разписание</string>
     <string name="manage_timetable">Управление на разписанието</string>

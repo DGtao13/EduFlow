@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,6 +41,7 @@ import com.eduflow.app.ui.FeedbackChooser
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
             SettingsSection(stringResource(R.string.organization)) {
                 Column {
+                    SettingsRow(stringResource(R.string.nav_subjects), stringResource(R.string.subjects_supporting), Icons.Default.AccountBox, onClick = { navController.navigate("subjects") })
                     SettingsRow(stringResource(R.string.private_lessons), stringResource(R.string.private_lessons_supporting), Icons.Default.Person, onClick = { navController.navigate("private_lessons") })
                     SettingsRow(stringResource(R.string.academic_year), "${academicYear.startDate} – ${academicYear.endDate}", Icons.Default.CheckCircle, onClick = { navController.navigate("academic_year") })
                 }

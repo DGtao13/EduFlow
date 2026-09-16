@@ -12,9 +12,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.PagerSnapDistance
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.DecayAnimationSpec
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,6 +76,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,11 +89,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalDensity
@@ -124,10 +143,17 @@ import com.eduflow.app.domain.LessonTaskIndicatorState
 import com.eduflow.app.ui.AdjacentInnerPosition
 import com.eduflow.app.ui.WeekPagerRange
 import com.eduflow.app.ui.desiredAdjacentInnerPosition
+import com.eduflow.app.ui.pagerBoundaryHandoffDelta
+import com.eduflow.app.ui.pagerHandoffTarget
 import com.eduflow.app.ui.resolveActiveInnerOffset
 import com.eduflow.app.ui.settledWeekMonday
 import com.eduflow.app.ui.scheduleDateSelection
 import com.eduflow.app.ui.weekdayToTimetableIndex
+import com.eduflow.app.ui.timetablePanDelta
+import com.eduflow.app.ui.TimetableFlingVelocity
+import com.eduflow.app.ui.flingAxisRemainsActive
+import com.eduflow.app.ui.shouldStartTimetableFling
+import com.eduflow.app.ui.timetableFlingVelocity
 import com.eduflow.app.ui.cyclePreview
 import com.eduflow.app.ui.moveCycleEntry
 import com.eduflow.app.ui.SchoolWeekRangeState
@@ -148,6 +174,8 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -157,14 +185,12 @@ private val scheduleContentFrameInset = 6.dp
 @Composable
 fun ScheduleScreen(database: EduFlowDatabase, navController: NavController, launchToday: Boolean = false) {
     val viewModel: ScheduleViewModel = viewModel(factory = DatabaseViewModelFactory(database))
-    val monday by viewModel.weekMonday.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
     val templates by viewModel.templates.collectAsState()
     val configuration by viewModel.configuration.collectAsState()
     val entries by viewModel.cycleEntries.collectAsState()
     val academicYear by viewModel.academicYear.collectAsState()
     val subjectMap = remember(subjects) { subjects.associateBy { it.id } }
-    var cycleDialog by remember { mutableStateOf(false) }
     val cycleValid = configuration?.let { config -> entries.isNotEmpty() && entries.any { it.templateId == config.anchorTemplateId } } == true
 
     Scaffold(
@@ -177,9 +203,10 @@ fun ScheduleScreen(database: EduFlowDatabase, navController: NavController, laun
     }) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
+            val scheduleScrollState = rememberScrollState()
             Column(
                 Modifier.fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scheduleScrollState)
             ) {
                 when {
                     templates.isEmpty() -> {
@@ -197,15 +224,14 @@ fun ScheduleScreen(database: EduFlowDatabase, navController: NavController, laun
                         SetupState(
                             message = stringResource(R.string.cycle_setup_message),
                             action = stringResource(R.string.configure_cycle),
-                            onAction = { cycleDialog = true }
+                            onAction = { navController.navigate("timetable_setup") }
                         )
                     }
-                    else -> SchedulePager(viewModel, academicYear, subjectMap, { cycleDialog = true }, navController, viewportHeight, launchToday)
+                    else -> SchedulePager(viewModel, academicYear, subjectMap, navController, viewportHeight, scheduleScrollState, launchToday)
                 }
             }
         }
     }
-    if (cycleDialog) CycleConfigurationDialog(monday, templates, configuration, entries, { cycleDialog = false }) { anchor, templateId, orderedIds -> viewModel.configureCycle(anchor, templateId, orderedIds) }
 }
 
 private data class TodayPositionRequest(val id: Int, val date: LocalDate)
@@ -215,9 +241,9 @@ private fun SchedulePager(
     viewModel: ScheduleViewModel,
     academicYear: com.eduflow.app.data.AcademicYearSettings,
     subjects: Map<Long, Subject>,
-    onConfigureCycle: () -> Unit,
     navController: NavController,
     viewportHeight: Dp,
+    scheduleScrollState: ScrollState,
     launchToday: Boolean
 ) {
     val scheduleSlots by viewModel.scheduleSlots.collectAsState()
@@ -246,10 +272,25 @@ private fun SchedulePager(
     val innerStates = remember { mutableStateMapOf<LocalDate, ScrollState>() }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val flingDecay = rememberSplineBasedDecay<Offset>()
+    val timetableFlingController = remember(scope) { TimetableFlingController(scope) }
+    val minimumFlingVelocity = remember(context) {
+        android.view.ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
+    }
     var todayRequest by remember { mutableStateOf<TodayPositionRequest?>(null) }
     var datePickerOpen by remember { mutableStateOf(false) }
     var privateQuickActionLesson by remember { mutableStateOf<LessonInstance?>(null) }
     var privateDeleteConfirmation by remember { mutableStateOf<LessonInstance?>(null) }
+
+    DisposableEffect(timetableFlingController) {
+        onDispose { timetableFlingController.cancel() }
+    }
+
+    LaunchedEffect(settledPage) {
+        // A velocity belongs only to the week where its gesture ended.
+        timetableFlingController.cancel()
+    }
 
     LaunchedEffect(launchToday) {
         if (launchToday) {
@@ -302,8 +343,7 @@ private fun SchedulePager(
                 todayRequest = TodayPositionRequest((todayRequest?.id ?: 0) + 1, date)
                 scope.launch { pagerState.animateScrollToPage(range.indexFor(date).coerceIn(0, range.pageCount - 1)) }
             },
-            onSelectDate = { datePickerOpen = true },
-            onConfigureCycle = onConfigureCycle
+            onSelectDate = { datePickerOpen = true }
         )
     }
 
@@ -329,6 +369,7 @@ private fun SchedulePager(
     HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxWidth().height(schoolAreaHeight),
+                userScrollEnabled = false,
                 beyondViewportPageCount = 1,
                 flingBehavior = PagerDefaults.flingBehavior(
                     state = pagerState,
@@ -399,6 +440,21 @@ private fun SchedulePager(
                         periodRows = periodRows,
                         eventAreaHeight = eventAreaHeight,
                         innerScrollState = innerScroll,
+                        verticalScrollState = scheduleScrollState,
+                        pagerState = pagerState,
+                        flingDecay = flingDecay,
+                        minimumFlingVelocity = minimumFlingVelocity,
+                        timetableFlingController = timetableFlingController,
+                        onPagerHandoffEnd = { startPage, accumulatedPagerScroll ->
+                            val target = pagerHandoffTarget(
+                                startPage = startPage,
+                                accumulatedPagerScroll = accumulatedPagerScroll,
+                                pageSizePx = pagerState.layoutInfo.pageSize,
+                                minimumPage = 0,
+                                maximumPage = range.pageCount - 1
+                            )
+                            scope.launch { pagerState.animateScrollToPage(target) }
+                        },
                         onOpenLesson = { navController.navigate("lesson/$it") },
                         onAddTask = { navController.navigate("task/new/$it") },
                         onToggleLesson = viewModel::toggleCancellation,
@@ -670,8 +726,7 @@ private fun WeekNavigator(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onToday: () -> Unit,
-    onSelectDate: () -> Unit,
-    onConfigureCycle: () -> Unit
+    onSelectDate: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, stringResource(R.string.previous_week), modifier = Modifier.size(30.dp)) }
@@ -679,10 +734,7 @@ private fun WeekNavigator(
             TextButton(onClick = onSelectDate, modifier = Modifier.heightIn(min = 44.dp)) {
                 Text(formatBulgarianWeekRange(monday), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = onToday, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)) { Text(stringResource(R.string.current_week)) }
-                TextButton(onClick = onConfigureCycle, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text(stringResource(R.string.cycle), style = MaterialTheme.typography.labelMedium) }
-            }
+            OutlinedButton(onClick = onToday, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)) { Text(stringResource(R.string.current_week)) }
         }
         IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.next_week), modifier = Modifier.size(30.dp)) }
     }
@@ -745,12 +797,31 @@ private fun ActualWeekGrid(
     onDeleteEvent: (TimetableEvent) -> Unit,
     periodRows: List<TimetablePeriodRow>,
     eventAreaHeight: androidx.compose.ui.unit.Dp,
-    innerScrollState: ScrollState
+    innerScrollState: ScrollState,
+    verticalScrollState: ScrollState,
+    pagerState: PagerState,
+    flingDecay: DecayAnimationSpec<Offset>,
+    minimumFlingVelocity: Float,
+    timetableFlingController: TimetableFlingController,
+    onPagerHandoffEnd: (startPage: Int, accumulatedPagerScroll: Float) -> Unit
 ) {
     val dates = remember(monday) { List(5) { monday.plusDays(it.toLong()) } }
     val lessonsByDate = remember(lessons) { lessons.groupBy { it.actualDate } }
     val eventsByDate = remember(events) { events.groupBy { it.date } }
-    Column(Modifier.fillMaxWidth().horizontalScroll(innerScrollState)) {
+    Column(
+        Modifier.fillMaxWidth()
+            .coordinatedTimetablePan(
+                horizontalScrollState = innerScrollState,
+                verticalScrollState = verticalScrollState,
+                pagerState = pagerState,
+                flingDecay = flingDecay,
+                minimumFlingVelocity = minimumFlingVelocity,
+                timetableFlingController = timetableFlingController,
+                onPagerHandoffEnd = onPagerHandoffEnd
+            )
+            // The pan modifier owns touch input; this modifier still supplies bounded layout.
+            .horizontalScroll(innerScrollState, enabled = false)
+    ) {
         Row {
             dates.forEach { date ->
                 TimetableDayColumn(
@@ -777,6 +848,176 @@ private fun ActualWeekGrid(
                     onSaveEvent = onSaveEvent,
                     onDeleteEvent = onDeleteEvent
                 )
+            }
+        }
+    }
+}
+
+/**
+ * One pan owner for the timetable. It waits for the platform's touch slop, then updates both
+ * bounded scroll states for every pointer delta. Child click and long-press modifiers therefore
+ * receive untouched pointer input until a deliberate drag starts.
+ */
+private fun Modifier.coordinatedTimetablePan(
+    horizontalScrollState: ScrollState,
+    verticalScrollState: ScrollState,
+    pagerState: PagerState,
+    flingDecay: DecayAnimationSpec<Offset>,
+    minimumFlingVelocity: Float,
+    timetableFlingController: TimetableFlingController,
+    onPagerHandoffEnd: (startPage: Int, accumulatedPagerScroll: Float) -> Unit
+): Modifier = pointerInput(
+    horizontalScrollState,
+    verticalScrollState,
+    pagerState,
+    flingDecay,
+    minimumFlingVelocity,
+    timetableFlingController
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        // Direct contact has priority over a running decay, even before touch slop.
+        timetableFlingController.cancel()
+        val pointerId = down.id
+        val velocityTracker = VelocityTracker().also { it.addPointerInputChange(down) }
+        var accumulatedFingerDelta = Offset.Zero
+        var dragging = false
+        var releasedNormally = false
+        val pagerStartPage = pagerState.settledPage
+        var accumulatedPagerScroll = 0f
+
+        while (true) {
+            // Consume in Initial so child combinedClickable handlers see a deliberate drag as
+            // cancelled during their Main-pass processing.
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+            if (!change.pressed) {
+                velocityTracker.addPointerInputChange(change)
+                releasedNormally = change.changedToUpIgnoreConsumed()
+                break
+            }
+
+            velocityTracker.addPointerInputChange(change)
+
+            val fingerDelta = change.positionChange()
+            if (!dragging) {
+                accumulatedFingerDelta += fingerDelta
+                val distance = accumulatedFingerDelta.getDistance()
+                if (distance <= viewConfiguration.touchSlop) continue
+
+                dragging = true
+                val overSlop = accumulatedFingerDelta *
+                    ((distance - viewConfiguration.touchSlop) / distance)
+                accumulatedPagerScroll += applyCoordinatedPanDelta(
+                    fingerDelta = overSlop,
+                    horizontalScrollState = horizontalScrollState,
+                    verticalScrollState = verticalScrollState,
+                    pagerState = pagerState
+                )
+                change.consume()
+            } else if (fingerDelta != Offset.Zero) {
+                accumulatedPagerScroll += applyCoordinatedPanDelta(
+                    fingerDelta = fingerDelta,
+                    horizontalScrollState = horizontalScrollState,
+                    verticalScrollState = verticalScrollState,
+                    pagerState = pagerState
+                )
+                change.consume()
+            }
+        }
+
+        if (dragging && releasedNormally) {
+            if (accumulatedPagerScroll != 0f) {
+                // The existing direct edge handoff owns this release and pager settling.
+                onPagerHandoffEnd(pagerStartPage, accumulatedPagerScroll)
+            } else {
+                val pointerVelocity = velocityTracker.calculateVelocity(
+                    Velocity(viewConfiguration.maximumFlingVelocity, viewConfiguration.maximumFlingVelocity)
+                )
+                val scrollVelocity = timetableFlingVelocity(
+                    pointerVelocityX = pointerVelocity.x,
+                    pointerVelocityY = pointerVelocity.y,
+                    minimumFlingVelocity = minimumFlingVelocity
+                )
+                if (shouldStartTimetableFling(
+                        dragCrossedTouchSlop = dragging,
+                        releasedNormally = releasedNormally,
+                        pagerHandoffActive = false,
+                        velocity = scrollVelocity
+                    )
+                ) {
+                    timetableFlingController.start(
+                        horizontalScrollState = horizontalScrollState,
+                        verticalScrollState = verticalScrollState,
+                        initialVelocity = scrollVelocity,
+                        decay = flingDecay
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun applyCoordinatedPanDelta(
+    fingerDelta: Offset,
+    horizontalScrollState: ScrollState,
+    verticalScrollState: ScrollState,
+    pagerState: PagerState
+): Float {
+    val requested = timetablePanDelta(fingerDelta.x, fingerDelta.y)
+    val horizontalConsumed = horizontalScrollState.dispatchRawDelta(requested.horizontal)
+    verticalScrollState.dispatchRawDelta(requested.vertical)
+    val pagerDelta = pagerBoundaryHandoffDelta(
+        fingerDeltaX = fingerDelta.x,
+        fingerDeltaY = fingerDelta.y,
+        requestedHorizontal = requested.horizontal,
+        consumedByTimetable = horizontalConsumed
+    )
+    return if (pagerDelta != 0f) pagerState.dispatchRawDelta(pagerDelta) else 0f
+}
+
+/** Owns the single transient decay job for the currently settled timetable page. */
+private class TimetableFlingController(private val scope: CoroutineScope) {
+    private var flingJob: Job? = null
+
+    fun cancel() {
+        flingJob?.cancel()
+        flingJob = null
+    }
+
+    fun start(
+        horizontalScrollState: ScrollState,
+        verticalScrollState: ScrollState,
+        initialVelocity: TimetableFlingVelocity,
+        decay: DecayAnimationSpec<Offset>
+    ) {
+        cancel()
+        flingJob = scope.launch {
+            horizontalScrollState.scroll(MutatePriority.Default) {
+                val horizontalScope = this
+                verticalScrollState.scroll(MutatePriority.Default) {
+                    val verticalScope = this
+                    var previousValue = Offset.Zero
+                    var horizontalActive = initialVelocity.horizontal != 0f
+                    var verticalActive = initialVelocity.vertical != 0f
+                    AnimationState(
+                        Offset.VectorConverter,
+                        Offset.Zero,
+                        Offset(initialVelocity.horizontal, initialVelocity.vertical)
+                    ).animateDecay(decay) {
+                        val frameDelta = value - previousValue
+                        previousValue = value
+                        if (horizontalActive) {
+                            val consumed = horizontalScope.scrollBy(frameDelta.x)
+                            horizontalActive = flingAxisRemainsActive(frameDelta.x, consumed)
+                        }
+                        if (verticalActive) {
+                            val consumed = verticalScope.scrollBy(frameDelta.y)
+                            verticalActive = flingAxisRemainsActive(frameDelta.y, consumed)
+                        }
+                        if (!horizontalActive && !verticalActive) cancelAnimation()
+                    }
+                }
             }
         }
     }
@@ -1245,7 +1486,7 @@ private fun EventEditorDialog(event: TimetableEvent, onDismiss: () -> Unit, onSa
 }
 
 @Composable
-private fun CycleConfigurationDialog(
+fun CycleConfigurationDialog(
     monday: LocalDate,
     templates: List<ScheduleTemplate>,
     existingConfiguration: CycleConfiguration?,

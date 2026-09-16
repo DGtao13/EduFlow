@@ -101,7 +101,7 @@ Release signing is configured from local environment variables and signing mater
 
 ## Project status
 
-EduFlow v1.1.0 is the current stable release.
+EduFlow v1.2.0 is the current stable release.
 
 ## Feedback and bug reports
 
