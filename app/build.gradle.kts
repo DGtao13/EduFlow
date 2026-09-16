@@ -111,6 +111,38 @@ android {
     testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
+// A machine-readable, non-secret release identity used by tools/release-build.ps1.
+// Keeping this in Gradle prevents build automation from having to parse version values.
+tasks.register("printReleaseIdentity") {
+    group = "verification"
+    description = "Prints the configured production application identity for release verification."
+    doLast {
+        val applicationId = android.defaultConfig.applicationId
+        val versionName = android.defaultConfig.versionName
+        val versionCode = android.defaultConfig.versionCode
+            ?: throw GradleException("Production versionCode is not configured.")
+
+        if (applicationId.isNullOrBlank()) {
+            throw GradleException("Production applicationId is not configured.")
+        }
+        if (versionName.isNullOrBlank()) {
+            throw GradleException("Production versionName is not configured.")
+        }
+        if (versionCode <= 0) {
+            throw GradleException("Production versionCode must be a positive integer.")
+        }
+
+        println(
+            listOf(
+                "EDUFLOW_RELEASE_IDENTITY",
+                applicationId,
+                versionName,
+                versionCode.toString()
+            ).joinToString("|")
+        )
+    }
+}
+
 kapt { arguments { arg("room.schemaLocation", "$projectDir/schemas") } }
 
 dependencies {

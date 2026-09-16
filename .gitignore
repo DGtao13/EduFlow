@@ -24,9 +24,17 @@ signing.properties
 # Local environment/secrets and transient files
 .env
 .env.*
+.eduflow/
+release-config.json
+release-config.*.json
 *.log
 *.tmp
 
 # User-created EduFlow archives and exports
 *.eduflow
+*.eduflow-backup
 EduFlow-export-*.zip
+EduFlow-backup-*.zip
+*.db
+*.sqlite
+*.sqlite3
