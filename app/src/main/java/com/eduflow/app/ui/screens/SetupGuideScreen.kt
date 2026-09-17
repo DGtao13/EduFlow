@@ -4,10 +4,13 @@ package com.eduflow.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -17,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -30,6 +34,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import androidx.navigation.NavController
 import com.eduflow.app.R
 import com.eduflow.app.data.OnboardingRepository
@@ -54,22 +59,47 @@ fun SetupGuideScreen(navController: NavController, firstUse: Boolean) {
             navigationIcon = { IconButton(onClick = { if (step > 0) step-- else navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) } }
         )
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically)) {
-            if (step == 0) Image(painterResource(R.drawable.eduflow_logo), stringResource(R.string.app_name), modifier = Modifier.fillMaxWidth().padding(horizontal = 44.dp))
-            Text(stringResource(headings[step]), style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-            Text(stringResource(setupDescription(step)), textAlign = TextAlign.Center, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
-            when (step) {
-                1 -> OutlinedButton(onClick = { navController.navigate("academic_year") }) { Text(stringResource(R.string.setup_open_academic_year)) }
-                2 -> OutlinedButton(onClick = { navController.navigate("subjects") }) { Text(stringResource(R.string.setup_open_subjects)) }
-                3 -> {
-                    OutlinedButton(onClick = { navController.navigate("timetable_setup") }) { Text(stringResource(R.string.create_manually)) }
-                    OutlinedButton(onClick = { navController.navigate("backup") }) { Text(stringResource(R.string.import_program)) }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("setup_scroll_content"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (step == 0) Image(painterResource(R.drawable.eduflow_logo), stringResource(R.string.app_name), modifier = Modifier.fillMaxWidth().padding(horizontal = 44.dp))
+                Text(stringResource(headings[step]), style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                Text(stringResource(setupDescription(step)), textAlign = TextAlign.Center, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                when (step) {
+                    1 -> OutlinedButton(onClick = { navController.navigate("academic_year") }) { Text(stringResource(R.string.setup_open_academic_year)) }
+                    2 -> OutlinedButton(onClick = { navController.navigate("subjects") }) { Text(stringResource(R.string.setup_open_subjects)) }
+                    3 -> {
+                        OutlinedButton(onClick = { navController.navigate("timetable_setup") }) { Text(stringResource(R.string.create_manually)) }
+                        OutlinedButton(onClick = { navController.navigate("backup") }) { Text(stringResource(R.string.import_program)) }
+                    }
+                    4 -> OutlinedButton(onClick = { navController.navigate("private_lessons") }) { Text(stringResource(R.string.private_lessons)) }
+                    5 -> OutlinedButton(onClick = { navController.navigate("notification_settings") }) { Text(stringResource(R.string.notifications)) }
                 }
-                4 -> OutlinedButton(onClick = { navController.navigate("private_lessons") }) { Text(stringResource(R.string.private_lessons)) }
-                5 -> OutlinedButton(onClick = { navController.navigate("notification_settings") }) { Text(stringResource(R.string.notifications)) }
             }
-            Button(onClick = { if (step == headings.lastIndex) finish() else step++ }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (step == headings.lastIndex) R.string.finish else R.string.next)) }
-            if (step in 2..5) androidx.compose.material3.TextButton(onClick = { step++ }) { Text(stringResource(R.string.skip)) }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp)
+                    .testTag("setup_primary_actions"),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(onClick = { if (step == headings.lastIndex) finish() else step++ }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (step == headings.lastIndex) R.string.finish else R.string.next)) }
+                if (step in 2..5) TextButton(onClick = { step++ }) { Text(stringResource(R.string.skip)) }
+            }
         }
     }
 }

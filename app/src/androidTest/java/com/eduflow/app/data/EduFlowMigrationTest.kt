@@ -51,4 +51,20 @@ class EduFlowMigrationTest {
         migrated.query("SELECT name FROM sqlite_master WHERE type='table' AND name='imported_task_shares'").use { cursor -> assertEquals(true, cursor.moveToFirst()) }
         migrated.close()
     }
+
+    @Test fun v11ToV12MovesEachLegacyPrivateWeekdayIntoSourceOwnedMembership() {
+        val name = "migration-v11-v12-test.db"
+        helper.createDatabase(name, 11).apply {
+            execSQL("INSERT INTO subjects (id, name, shortName, defaultTeacher, defaultRoom, color) VALUES (1, 'Математика', NULL, NULL, NULL, 0)")
+            execSQL("INSERT INTO recurring_private_lessons (id, subjectId, weekday, startTime, endTime, startDate, endDate, intervalWeeks, teacherOverride, roomOverride, label, enabled, privateLocationKind) VALUES (30, 1, 1, '16:00', '17:00', '2026-09-14', NULL, 1, NULL, NULL, 'Подготовка', 1, 'ONLINE')")
+            execSQL("INSERT INTO lesson_instances (id, actualDate, actualStartTime, actualEndTime, subjectId, sourceScheduleSlotId, sourcePrivateLessonId, kind, cancellationState, actualTeacher, actualRoom, topic, notes, privateLessonName, privateLocationKind) VALUES (31, '2026-09-14', '16:00', '17:00', 1, NULL, 30, 'PRIVATE', 'ACTIVE', NULL, NULL, NULL, NULL, 'Подготовка', 'ONLINE')")
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(name, 12, true, EduFlowDatabase.MIGRATION_11_12)
+        migrated.query("SELECT recurringPrivateLessonId, weekday FROM recurring_private_lesson_weekdays").use { cursor ->
+            assertEquals(true, cursor.moveToFirst()); assertEquals(30L, cursor.getLong(0)); assertEquals(1, cursor.getInt(1))
+        }
+        migrated.query("SELECT sourcePrivateLessonId FROM lesson_instances WHERE id = 31").use { cursor -> assertEquals(true, cursor.moveToFirst()); assertEquals(30L, cursor.getLong(0)) }
+        migrated.close()
+    }
 }

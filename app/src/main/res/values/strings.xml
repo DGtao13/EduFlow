@@ -287,6 +287,7 @@
     <string name="private_lesson">Частен урок</string>
     <string name="private_lesson_name">Име на урока</string>
     <string name="private_lesson_name_required">Въведи име на урока.</string>
+    <string name="private_weekdays_required">Изберете поне един ден.</string>
     <string name="linked_school_subject">Свързан училищен предмет</string>
     <string name="private_tutor">Преподавател</string>
     <string name="private_location">Място</string>

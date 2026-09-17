@@ -80,6 +80,7 @@ object BackupPackageLogic {
         d.cycleEntries.forEach { reference(it.templateId, templates); require(it.position >= 0) }
         d.privateLessons.forEach {
             reference(it.subjectId, subjects); require(it.weekday in 1..7 && it.interval in 1..2); range(it.start, it.end)
+            it.weekdays?.let { weekdays -> require(weekdays.isNotEmpty() && weekdays.distinct().size == weekdays.size && weekdays.all { day -> day in 1..7 }) }
             val from = LocalDate.parse(it.startDate); it.endDate?.let { to -> require(!LocalDate.parse(to).isBefore(from)) }
             it.privateLocationKind?.let(PrivateLessonLocationKind::valueOf)
         }

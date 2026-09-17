@@ -61,6 +61,22 @@ interface RecurringPrivateLessonDao {
 }
 
 @Dao
+interface RecurringPrivateLessonWeekdayDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(days: List<RecurringPrivateLessonWeekday>)
+    @Query("DELETE FROM recurring_private_lesson_weekdays WHERE recurringPrivateLessonId = :sourceId")
+    suspend fun deleteForSource(sourceId: Long)
+    @Query("SELECT weekday FROM recurring_private_lesson_weekdays WHERE recurringPrivateLessonId = :sourceId ORDER BY weekday")
+    suspend fun getForSource(sourceId: Long): List<Int>
+    @Query("SELECT weekday FROM recurring_private_lesson_weekdays WHERE recurringPrivateLessonId = :sourceId ORDER BY weekday")
+    fun observeForSource(sourceId: Long): Flow<List<Int>>
+    @Query("SELECT * FROM recurring_private_lesson_weekdays")
+    suspend fun getAll(): List<RecurringPrivateLessonWeekday>
+    @Query("SELECT * FROM recurring_private_lesson_weekdays")
+    fun observeAll(): Flow<List<RecurringPrivateLessonWeekday>>
+}
+
+@Dao
 interface LessonInstanceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(lesson: LessonInstance): Long
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertIfAbsent(lesson: LessonInstance): Long

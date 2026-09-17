@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
@@ -25,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +61,7 @@ import com.eduflow.app.ui.EduFlowChildTopAppBar
 import com.eduflow.app.ui.isValidPrivateLessonTimeRange
 import com.eduflow.app.ui.oneOffDefaultDate
 import com.eduflow.app.ui.PrivateLessonFormValues
+import com.eduflow.app.ui.RecurringWeekdaySelection
 import com.eduflow.app.ui.newOneOffPrivateLesson
 import com.eduflow.app.data.TaskLogic
 import com.eduflow.app.data.SchoolYear
@@ -85,14 +88,14 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 private val privateTimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private enum class PrivateLessonSelector { SUBJECT, WEEKDAY, INTERVAL, LOCATION }
+private enum class PrivateLessonSelector { SUBJECT, INTERVAL, LOCATION }
 private const val defaultOneOffStartHour = 17
 private const val defaultOneOffEndHour = 18
 
 @Composable
 fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController) {
     val vm: PrivateLessonsViewModel = viewModel(factory = DatabaseViewModelFactory(database))
-    val lessons by vm.lessons.collectAsState(); val subjects by vm.subjects.collectAsState()
+    val series by vm.series.collectAsState(); val subjects by vm.subjects.collectAsState()
     var deleting by remember { mutableStateOf<RecurringPrivateLesson?>(null) }
     val subjectMap = subjects.associateBy { it.id }
     Scaffold(
@@ -108,14 +111,15 @@ fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController
                     Text(stringResource(R.string.add_recurring_private_lesson))
                 }
             }
-            if (lessons.isEmpty()) {
+            if (series.isEmpty()) {
                 item { Text(stringResource(R.string.no_recurring_private_lessons), modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            items(lessons, key = { it.id }) { lesson ->
+            items(series, key = { it.lesson.id }) { recurringSeries ->
+                val lesson = recurringSeries.lesson
                 Row(Modifier.fillMaxWidth().clickable { navController.navigate("private/${lesson.id}") }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(lesson.privateLessonName ?: subjectMap[lesson.subjectId]?.shortName ?: subjectMap[lesson.subjectId]?.name ?: stringResource(R.string.private_lesson), style = MaterialTheme.typography.titleSmall)
-                        Text("${weekdayText(lesson.weekday)} · ${lesson.startTime.format(privateTimeFormat)}–${lesson.endTime.format(privateTimeFormat)} · ${stringResource(if (lesson.intervalWeeks == 2) R.string.every_two_weeks else R.string.every_week)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${weekdaySummary(recurringSeries.weekdays)} · ${lesson.startTime.format(privateTimeFormat)}–${lesson.endTime.format(privateTimeFormat)} · ${stringResource(if (lesson.intervalWeeks == 2) R.string.every_two_weeks else R.string.every_week)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = lesson.enabled, onCheckedChange = { vm.toggle(lesson) })
                     IconButton(onClick = { deleting = lesson }) { Icon(Icons.Default.Delete, stringResource(R.string.delete_private_lesson_series)) }
@@ -129,8 +133,8 @@ fun PrivateLessonsScreen(database: EduFlowDatabase, navController: NavController
 @Composable
 fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Boolean, navController: NavController, similarFromId: Long? = null) {
     val vm: PrivateLessonEditorViewModel = viewModel(factory = PrivateLessonEditorFactory(database, id, oneOff))
-    val existingRecurring by vm.lesson.collectAsState(); val existingOneOff by vm.oneOffLesson.collectAsState(); val subjects by vm.subjects.collectAsState()
-    if (id != null && (if (oneOff) existingOneOff == null else existingRecurring == null)) {
+    val existingRecurring by vm.lesson.collectAsState(); val existingSeries by vm.series.collectAsState(); val existingOneOff by vm.oneOffLesson.collectAsState(); val subjects by vm.subjects.collectAsState()
+    if (id != null && (if (oneOff) existingOneOff == null else existingSeries == null)) {
         androidx.compose.material3.CircularProgressIndicator(); return
     }
     val editingOneOff = oneOff && id != null && similarFromId == null
@@ -141,7 +145,7 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
     var subjectId by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.subjectId else recurringBase?.subjectId) }
     var privateName by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.privateLessonName.orEmpty() else recurringBase?.privateLessonName.orEmpty()) }
     var nameAutoDerived by remember(baseId, oneOff) { mutableStateOf(!oneOff && recurringBase?.privateLessonName.isNullOrBlank()) }
-    var weekday by remember(baseId) { mutableStateOf(recurringBase?.weekday ?: initialRecurringStartDate.dayOfWeek.value) }
+    var selectedWeekdays by remember(baseId, existingSeries?.weekdays) { mutableStateOf(existingSeries?.weekdays ?: setOf(initialRecurringStartDate.dayOfWeek.value)) }
     var start by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.let { if (editingOneOff) it.actualStartTime.format(privateTimeFormat) else "" } ?: "" else recurringBase?.startTime?.format(privateTimeFormat) ?: LocalTime.of(defaultOneOffStartHour, 0).format(privateTimeFormat)) }
     var end by remember(baseId, oneOff, similarFromId) { mutableStateOf(if (oneOff) oneOffBase?.let { if (editingOneOff) it.actualEndTime.format(privateTimeFormat) else "" } ?: "" else recurringBase?.endTime?.format(privateTimeFormat) ?: LocalTime.of(defaultOneOffEndHour, 0).format(privateTimeFormat)) }
     var startDate by remember(baseId) { mutableStateOf(initialRecurringStartDate) }
@@ -159,7 +163,7 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
     var datePickerTarget by remember { mutableStateOf<PrivateDatePickerTarget?>(null) }
     val draftValues = listOf(subjectId, privateName.trim(), start, end, teacher.trim().ifBlank { null }, locationKind,
         locationText.trim().ifBlank { null }.takeIf { locationKind != PrivateLessonLocationKind.UNSPECIFIED }) +
-        if (oneOff) listOf(oneOffDate) else listOf(weekday, startDate, endDate, interval, enabled)
+        if (oneOff) listOf(oneOffDate) else listOf(selectedWeekdays.toList().sorted(), startDate, endDate, interval, enabled)
     val originalDraft = remember(baseId, oneOff, similarFromId) { draftValues }
     val leave = protectedEditorExit(draftValues != originalDraft) { navController.popBackStack() }
     com.eduflow.app.ui.EditorBackHandler(leave)
@@ -185,7 +189,10 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
                 OutlinedTextField(value = teacher, onValueChange = { teacher = it }, label = { Text(stringResource(R.string.private_tutor)) }, supportingText = { Text(stringResource(R.string.optional)) }, modifier = Modifier.fillMaxWidth())
                 SelectorField(stringResource(R.string.private_location), privateLocationKindText(locationKind)) { selector = PrivateLessonSelector.LOCATION }
                 if (locationKind != PrivateLessonLocationKind.UNSPECIFIED) OutlinedTextField(locationText, { locationText = it }, label = { Text(stringResource(if (locationKind == PrivateLessonLocationKind.IN_PERSON) R.string.private_location_address else R.string.private_location_platform)) }, modifier = Modifier.fillMaxWidth())
-                SelectorField(stringResource(R.string.weekday), weekdayText(weekday)) { selector = PrivateLessonSelector.WEEKDAY }
+                WeekdayMultiSelect(selectedWeekdays) { day ->
+                    selectedWeekdays = RecurringWeekdaySelection.toggle(selectedWeekdays, day)
+                    error = null
+                }
                 SelectorField(stringResource(R.string.recurrence), stringResource(if (interval == 2) R.string.every_two_weeks else R.string.every_week)) { selector = PrivateLessonSelector.INTERVAL }
                 SelectorField(stringResource(R.string.private_start_date), stringResource(R.string.private_date_value, formatBulgarianDateWithYear(startDate))) { datePickerTarget = PrivateDatePickerTarget.RECURRING_START; error = null }
                 SelectorField(stringResource(R.string.private_end_date), endDate?.let { stringResource(R.string.private_date_value, formatBulgarianDateWithYear(it)) } ?: stringResource(R.string.none)) { datePickerTarget = PrivateDatePickerTarget.RECURRING_END; error = null }
@@ -198,12 +205,12 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) { Text(stringResource(R.string.delete_private_lesson_series)) }
             }
-            error?.let { Text(stringResource(when (it) { "NAME" -> R.string.private_lesson_name_required; "SUBJECT" -> R.string.choose_subject; "TIME_ORDER" -> R.string.private_time_order_invalid; else -> R.string.private_invalid }), color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(stringResource(when (it) { "NAME" -> R.string.private_lesson_name_required; "WEEKDAYS" -> R.string.private_weekdays_required; "SUBJECT" -> R.string.choose_subject; "TIME_ORDER" -> R.string.private_time_order_invalid; else -> R.string.private_invalid }), color = MaterialTheme.colorScheme.error) }
             Button(onClick = {
                 val parsedStart = runCatching { LocalTime.parse(start, privateTimeFormat) }.getOrNull(); val parsedEnd = runCatching { LocalTime.parse(end, privateTimeFormat) }.getOrNull()
                 val values = parsedStart?.let { startTime -> parsedEnd?.let { endTime -> PrivateLessonFormValues(oneOffDate, startTime, endTime, subjectId, privateName.trim(), teacher.trim().ifBlank { null }, if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, locationKind) } }
                 if (privateName.isBlank()) error = "NAME" else if (parsedStart == null || parsedEnd == null) error = "INVALID" else if (!isValidPrivateLessonTimeRange(parsedStart, parsedEnd)) error = "TIME_ORDER" else if (oneOff && editingOneOff) vm.updateOneOff(values!!) { navController.popBackStack() } else if (oneOff) vm.createOneOff(newOneOffPrivateLesson(values!!)) { navController.popBackStack() } else {
-                    if (endDate != null && endDate!!.isBefore(startDate)) error = "INVALID" else vm.save(RecurringPrivateLesson(id = recurringBase?.id ?: 0, subjectId = subjectId, weekday = weekday, startTime = parsedStart, endTime = parsedEnd, startDate = startDate, endDate = endDate, intervalWeeks = interval, teacherOverride = teacher.trim().ifBlank { null }, roomOverride = if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, privateLessonName = privateName.trim(), enabled = enabled, privateLocationKind = locationKind)) { navController.popBackStack() }
+                    if (selectedWeekdays.isEmpty()) error = "WEEKDAYS" else if (endDate != null && endDate!!.isBefore(startDate)) error = "INVALID" else vm.save(RecurringPrivateLesson(id = recurringBase?.id ?: 0, subjectId = subjectId, weekday = selectedWeekdays.minOrNull()!!, startTime = parsedStart, endTime = parsedEnd, startDate = startDate, endDate = endDate, intervalWeeks = interval, teacherOverride = teacher.trim().ifBlank { null }, roomOverride = if (locationKind == PrivateLessonLocationKind.UNSPECIFIED) null else locationText.trim().ifBlank { null }, privateLessonName = privateName.trim(), enabled = enabled, privateLocationKind = locationKind), selectedWeekdays) { navController.popBackStack() }
                 }
             }) { Text(stringResource(R.string.save)) }
         }
@@ -228,7 +235,6 @@ fun PrivateLessonEditorScreen(database: EduFlowDatabase, id: Long?, oneOff: Bool
                     nameAutoDerived = draft.isAutoDerived
                     selector = null
                 }, emptyLabel = stringResource(R.string.none))
-                PrivateLessonSelector.WEEKDAY -> PrivateChoiceSheet(stringResource(R.string.weekday), (1..7).toList(), weekday, { day -> weekdayText(day) }) { weekday = it; selector = null }
                 PrivateLessonSelector.INTERVAL -> PrivateChoiceSheet(stringResource(R.string.recurrence), listOf(1, 2), interval, { stringResource(if (it == 2) R.string.every_two_weeks else R.string.every_week) }) { interval = it; selector = null }
                 PrivateLessonSelector.LOCATION -> PrivateChoiceSheet(stringResource(R.string.private_location), PrivateLessonLocationKind.entries.toList(), locationKind, { privateLocationKindText(it) }) { locationKind = it; selector = null }
             }
@@ -288,4 +294,23 @@ fun SubjectDetailsScreen(database: EduFlowDatabase, subjectId: Long, navControll
 @Composable private fun LessonHistoryRow(lesson: LessonInstance, onOpen: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("${formatBulgarianDate(lesson.actualDate)} · ${lesson.actualStartTime.format(privateTimeFormat)} · ${lesson.displayTitle(null, stringResource(R.string.private_lesson), stringResource(R.string.school_lesson))}"); lesson.topic?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (lesson.notes != null) Text(stringResource(R.string.notes), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 @Composable private fun SubjectTaskRow(task: Task, toggle: (Task) -> Unit, open: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = open).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(task.status == TaskStatus.COMPLETED, { toggle(task) }); Text(task.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
 @Composable private fun weekdayText(day: Int): String = stringResource(when (day) { 1 -> R.string.weekday_monday; 2 -> R.string.weekday_tuesday; 3 -> R.string.weekday_wednesday; 4 -> R.string.weekday_thursday; 5 -> R.string.weekday_friday; 6 -> R.string.weekday_saturday; else -> R.string.weekday_sunday })
+@Composable private fun weekdaySummary(days: Set<Int>): String = RecurringWeekdaySelection.bulgarianSummary(days)
+
+@Composable private fun WeekdayMultiSelect(selected: Set<Int>, onToggle: (Int) -> Unit) {
+    Text(stringResource(R.string.weekday), style = MaterialTheme.typography.titleSmall)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf((1..4).toList(), (5..7).toList()).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { day ->
+                    FilterChip(
+                        selected = day in selected,
+                        onClick = { onToggle(day) },
+                        label = { Text(RecurringWeekdaySelection.shortLabel(day)) },
+                        leadingIcon = if (day in selected) ({ Icon(Icons.Default.Check, contentDescription = null) }) else null
+                    )
+                }
+            }
+        }
+    }
+}
 @Composable private fun privateLocationKindText(kind: PrivateLessonLocationKind): String = stringResource(when (kind) { PrivateLessonLocationKind.UNSPECIFIED -> R.string.private_location_unspecified; PrivateLessonLocationKind.IN_PERSON -> R.string.private_location_in_person; PrivateLessonLocationKind.ONLINE -> R.string.private_location_online })

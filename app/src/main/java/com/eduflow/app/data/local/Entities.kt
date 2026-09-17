@@ -86,6 +86,23 @@ data class RecurringPrivateLesson(
     val privateLocationKind: PrivateLessonLocationKind = PrivateLessonLocationKind.UNSPECIFIED
 )
 
+/** Authoritative weekday membership for one recurring PRIVATE series. */
+@Entity(
+    tableName = "recurring_private_lesson_weekdays",
+    primaryKeys = ["recurringPrivateLessonId", "weekday"],
+    foreignKeys = [ForeignKey(
+        entity = RecurringPrivateLesson::class,
+        parentColumns = ["id"],
+        childColumns = ["recurringPrivateLessonId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("weekday")]
+)
+data class RecurringPrivateLessonWeekday(
+    val recurringPrivateLessonId: Long,
+    val weekday: Int
+)
+
 @Entity(
     tableName = "lesson_instances",
     foreignKeys = [

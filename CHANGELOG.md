@@ -1,5 +1,12 @@
 # Changelog
 
+## EduFlow 1.3.0
+
+- Added multi-weekday recurrence for PRIVATE lessons while keeping each recurrence as one logical series.
+- Improved editing of recurring PRIVATE lessons, including accurate reconciliation of future occurrences.
+- Updated existing recurring PRIVATE lessons through the Room 11 to 12 database migration.
+- Made setup-guide navigation and Continue placement more consistent.
+
 ## EduFlow 1.2.1
 
 - Corrected edits to recurring PRIVATE lesson series, including weekday changes, enable/disable behavior, and whole-series deletion.

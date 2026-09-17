@@ -30,6 +30,7 @@ class NotificationReconciliation(private val context: Context, private val db: E
     }
     suspend fun readLessons(from: LocalDate, to: LocalDate): List<LessonInstance> {
         val definitions = db.recurringPrivateLessonDao().getAll().associateBy { it.id }
+        val weekdays = db.recurringPrivateLessonWeekdayDao().getAll().groupBy({ it.recurringPrivateLessonId }, { it.weekday })
         val slots = db.scheduleSlotDao().getAll().associateBy { it.id }
         val subjects = db.subjectDao().getAll().associateBy { it.id }
         val configuration = db.cycleDao().getConfiguration()
@@ -48,7 +49,7 @@ class NotificationReconciliation(private val context: Context, private val db: E
             } else if (lesson.sourcePrivateLessonId == null) lesson
             else {
                 val definition = definitions[lesson.sourcePrivateLessonId] ?: return@mapNotNull null
-                if (!PrivateLessonRecurrence.occursOn(definition, lesson.actualDate)) null
+                if (!PrivateLessonRecurrence.occursOn(definition, weekdays[definition.id]?.toSet() ?: setOf(definition.weekday), lesson.actualDate)) null
                 else lesson.copy(actualStartTime = definition.startTime, actualEndTime = definition.endTime,
                     subjectId = definition.subjectId, privateLessonName = definition.privateLessonName ?: lesson.privateLessonName)
             }
@@ -58,7 +59,7 @@ class NotificationReconciliation(private val context: Context, private val db: E
     suspend fun observeChanges() {
         val sources: List<Flow<Any>> = listOf(NotificationSettingsRepository(context).settings, db.taskDao().observeAll(),
             db.taskReminderDao().observeAll(), db.lessonInstanceDao().observeAll(), db.scheduleSlotDao().observeAll(),
-            db.recurringPrivateLessonDao().observeAll(), db.subjectDao().observeAll(), db.cycleDao().observeEntries(),
+            db.recurringPrivateLessonDao().observeAll(), db.recurringPrivateLessonWeekdayDao().observeAll(), db.subjectDao().observeAll(), db.cycleDao().observeEntries(),
             db.cycleDao().observeConfiguration().map { it ?: "unconfigured" },
             db.dayExceptionDao().observeForDateRange(LocalDate.of(2000,1,1), LocalDate.of(2100,1,1)),
             AcademicYearSettingsRepository(context).settings)

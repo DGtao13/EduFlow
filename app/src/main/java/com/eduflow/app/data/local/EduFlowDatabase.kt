@@ -16,6 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CycleEntry::class,
         ScheduleSlot::class,
         RecurringPrivateLesson::class,
+        RecurringPrivateLessonWeekday::class,
         LessonInstance::class,
         DayException::class,
         TimetableEvent::class,
@@ -24,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TaskReminder::class,
         ImportedTaskShare::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(EduFlowConverters::class)
@@ -34,6 +35,7 @@ abstract class EduFlowDatabase : RoomDatabase() {
     abstract fun cycleDao(): CycleDao
     abstract fun scheduleSlotDao(): ScheduleSlotDao
     abstract fun recurringPrivateLessonDao(): RecurringPrivateLessonDao
+    abstract fun recurringPrivateLessonWeekdayDao(): RecurringPrivateLessonWeekdayDao
     abstract fun lessonInstanceDao(): LessonInstanceDao
     abstract fun dayExceptionDao(): DayExceptionDao
     abstract fun timetableEventDao(): TimetableEventDao
@@ -51,8 +53,18 @@ abstract class EduFlowDatabase : RoomDatabase() {
                     context.applicationContext,
                     EduFlowDatabase::class.java,
                     "eduflow.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12).build().also { instance = it }
             }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `recurring_private_lesson_weekdays` (`recurringPrivateLessonId` INTEGER NOT NULL, `weekday` INTEGER NOT NULL, PRIMARY KEY(`recurringPrivateLessonId`, `weekday`), FOREIGN KEY(`recurringPrivateLessonId`) REFERENCES `recurring_private_lessons`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_private_lesson_weekdays_weekday` ON `recurring_private_lesson_weekdays` (`weekday`)")
+                // The old scalar remains a compatibility snapshot for older backup/UI paths;
+                // membership in this child table is authoritative from v12 onward.
+                database.execSQL("INSERT OR IGNORE INTO `recurring_private_lesson_weekdays` (`recurringPrivateLessonId`, `weekday`) SELECT `id`, `weekday` FROM `recurring_private_lessons` WHERE `weekday` BETWEEN 1 AND 7")
+            }
+        }
 
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(database: SupportSQLiteDatabase) {

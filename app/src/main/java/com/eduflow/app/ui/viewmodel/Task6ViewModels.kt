@@ -27,6 +27,7 @@ import java.time.LocalDateTime
 
 class PrivateLessonsViewModel(private val database: EduFlowDatabase) : ViewModel() {
     val lessons = database.recurringPrivateLessonDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val series = PrivateLessonRepository(database).observeAllSeries().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val subjects = database.subjectDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val repository = PrivateLessonRepository(database)
     fun toggle(lesson: RecurringPrivateLesson) = viewModelScope.launch {
@@ -44,13 +45,16 @@ class PrivateLessonEditorViewModel(private val database: EduFlowDatabase, id: Lo
     val oneOffLesson = if (oneOffId == null) kotlinx.coroutines.flow.MutableStateFlow<LessonInstance?>(null) else database.lessonInstanceDao().observeById(oneOffId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val subjects = database.subjectDao().observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val repository = PrivateLessonRepository(database)
-    fun save(lesson: RecurringPrivateLesson, onSaved: () -> Unit) = viewModelScope.launch {
+    /** Collection-based recurrence contract for the weekday multi-select in Task 2. */
+    val series = if (id == null) kotlinx.coroutines.flow.MutableStateFlow<com.eduflow.app.data.RecurringPrivateLessonSeries?>(null)
+    else repository.observeSeries(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    fun save(lesson: RecurringPrivateLesson, weekdays: Set<Int>, onSaved: () -> Unit) = viewModelScope.launch {
         require(!lesson.privateLessonName.isNullOrBlank()) { "PRIVATE recurring lessons require a name" }
-        require(lesson.weekday in 1..7)
+        require(weekdays.isNotEmpty() && weekdays.all { it in 1..7 })
         require(lesson.intervalWeeks in 1..2)
         require(lesson.endTime.isAfter(lesson.startTime))
         require(lesson.endDate == null || !lesson.endDate.isBefore(lesson.startDate))
-        repository.save(lesson)
+        repository.save(lesson, weekdays)
         com.eduflow.app.notifications.NotificationReconciliation(EduFlowApplication.appContext).requestReconciliation()
         onSaved()
     }

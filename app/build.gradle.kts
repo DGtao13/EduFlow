@@ -57,10 +57,11 @@ android {
 
     defaultConfig {
         applicationId = "com.eduflow.app"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.3.0"
     }
 
     buildTypes {
@@ -109,6 +110,10 @@ android {
         compose = true
     }
     testOptions { unitTests.isIncludeAndroidResources = true }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 // A machine-readable, non-secret release identity used by tools/release-build.ps1.
