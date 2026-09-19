@@ -32,7 +32,8 @@ Plan each school week, keep coursework connected to the lessons it belongs to, a
 ### Lessons
 
 - SCHOOL lesson details with topics and notes.
-- One-off and recurring PRIVATE lessons, with independent tutor and location information.
+- One-off and recurring PRIVATE lessons, including recurrences on multiple weekdays.
+- Independent tutor and location information for PRIVATE lessons.
 
 ### Notifications
 
@@ -42,7 +43,8 @@ Plan each school week, keep coursework connected to the lessons it belongs to, a
 
 ### Data and usability
 
-- Local-first storage, backup/archive creation and restore/import, plus selected data export.
+- Importable EduFlow archives and packages for backup, restore, and migration.
+- CSV export for viewing and analysis; CSV files cannot be restored into EduFlow.
 - Onboarding/setup guide and launcher shortcuts for common actions.
 
 ## Screenshots
@@ -76,7 +78,7 @@ Future APK releases signed with the same EduFlow production certificate can upda
 
 ## Privacy and local-first design
 
-Your schedule, tasks, private-lesson details, and lesson notes are stored on the device. Backups and exports are created only when you initiate them. See [PRIVACY.md](PRIVACY.md) for details and caveats.
+Your EduFlow data is stored locally on the device. Android automatic app-data backup and restore are disabled. For backup or migration, use EduFlow's explicit archive export/import; CSV exports are for viewing and analysis and are not restorable backups. See [PRIVACY.md](PRIVACY.md) for details and caveats.
 
 ## Requirements
 
@@ -105,7 +107,7 @@ Release signing is configured from local environment variables and signing mater
 
 ## Project status
 
-EduFlow v1.2.0 is the current stable release.
+EduFlow v1.3.1 is the current stable release.
 
 ## Feedback and bug reports
 
