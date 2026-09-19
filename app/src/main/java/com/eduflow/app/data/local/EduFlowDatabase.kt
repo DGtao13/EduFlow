@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TaskReminder::class,
         ImportedTaskShare::class
     ],
-    version = 12,
+    version = EduFlowDatabase.SCHEMA_VERSION,
     exportSchema = true
 )
 @TypeConverters(EduFlowConverters::class)
@@ -45,6 +45,7 @@ abstract class EduFlowDatabase : RoomDatabase() {
     abstract fun importedTaskShareDao(): ImportedTaskShareDao
 
     companion object {
+        const val SCHEMA_VERSION = 12
         @Volatile private var instance: EduFlowDatabase? = null
 
         fun getInstance(context: Context): EduFlowDatabase =

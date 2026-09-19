@@ -3,6 +3,7 @@ package com.eduflow.app.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -66,12 +67,16 @@ fun BackupScreen(navController: NavController) {
     var exportType by remember { mutableStateOf(PackageType.FULL_ARCHIVE) }
     var showExportTypes by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
-    fun failure(e: Exception): String = context.getString(when (e.message) {
-        "NEWER" -> R.string.backup_newer
-        "NOT_EMPTY" -> R.string.package_not_empty
-        "INCOMPATIBLE" -> R.string.package_incompatible
+    fun failure(e: Exception): String {
+        val backupError = e as? BackupException
+        if (backupError != null) Log.w("EduFlowBackup", "Backup failure: ${backupError.failure}; ${backupError.message}", backupError.cause)
+        return context.getString(when (backupError?.failure) {
+        com.eduflow.app.data.BackupFailure.UNSUPPORTED_FORMAT -> R.string.backup_newer
+        com.eduflow.app.data.BackupFailure.NOT_EMPTY -> R.string.package_not_empty
+        com.eduflow.app.data.BackupFailure.INCOMPATIBLE_PROGRAM -> R.string.package_incompatible
         else -> R.string.backup_invalid
-    })
+        })
+    }
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { scope.launch {
             busy = true
@@ -95,7 +100,7 @@ fun BackupScreen(navController: NavController) {
             busy = true
             try {
                 preview = withContext(Dispatchers.IO) {
-                    val parsed = context.contentResolver.openInputStream(it)?.use(repository::read) ?: error("io")
+                    val parsed = repository.read(it)
                     repository.preview(parsed)
                     parsed
                 }

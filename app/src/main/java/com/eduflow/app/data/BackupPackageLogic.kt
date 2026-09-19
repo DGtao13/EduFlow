@@ -51,13 +51,17 @@ object BackupPackageLogic {
         require(start == null || end == null || !end.isBefore(start))
         when (backup.manifest.packageType) {
             PackageType.SCHOOL_PROGRAM -> {
-                require(backup.data == program(backup.data))
-                require(backup.manifest.programFingerprint == fingerprint(backup))
+                if (backup.data != program(backup.data)) {
+                    throw BackupException(BackupFailure.PACKAGE_VALIDATION_FAILED, "SCHOOL_PROGRAM contains non-program data")
+                }
+                if (backup.manifest.programFingerprint != fingerprint(backup)) {
+                    throw BackupException(BackupFailure.FINGERPRINT_MISMATCH, "SCHOOL_PROGRAM fingerprint does not match data")
+                }
             }
             PackageType.STUDY_DATA -> {
                 require(backup.data.templates.isEmpty() && backup.data.slots.isEmpty() && backup.data.cycleConfig == null && backup.data.cycleEntries.isEmpty())
                 require(backup.manifest.programFingerprint?.matches(Regex("[0-9a-f]{64}")) == true)
-                if (current != null && backup.manifest.programFingerprint != fingerprint(current)) throw BackupException("INCOMPATIBLE")
+                if (current != null && backup.manifest.programFingerprint != fingerprint(current)) throw BackupException(BackupFailure.INCOMPATIBLE_PROGRAM, "STUDY_DATA program fingerprint differs from target")
             }
             PackageType.FULL_ARCHIVE -> Unit
         }

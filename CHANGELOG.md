@@ -1,5 +1,12 @@
 # Changelog
 
+## EduFlow 1.3.1
+
+- Clarified the distinction between restorable EduFlow archives and view-only CSV exports.
+- Newly created EduFlow archives now record accurate app and database metadata without changing the portable archive format.
+- Disabled automatic Android app-data restore so reinstalling starts clean unless an EduFlow archive is explicitly restored.
+- Improved internal import diagnostics to support investigation of future archive compatibility failures.
+
 ## EduFlow 1.3.0
 
 - Added multi-weekday recurrence for PRIVATE lessons while keeping each recurrence as one logical series.

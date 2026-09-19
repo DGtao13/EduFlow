@@ -1,10 +1,12 @@
 package com.eduflow.app.data
 
 import android.content.Context
+import android.net.Uri
 import androidx.room.withTransaction
 import com.eduflow.app.data.local.*
 import com.eduflow.app.notifications.TaskReminderScheduler
 import com.eduflow.app.widget.EduFlowWidgetUpdater
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,7 +20,20 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-class BackupException(message: String) : Exception(message)
+/** Stable, non-user-facing reason codes retained for support diagnostics and tests. */
+enum class BackupFailure {
+    ZIP_OPEN_FAILED, ZIP_ENTRY_INVALID, DUPLICATE_ENTRY, UNEXPECTED_ENTRY, REQUIRED_ENTRY_MISSING,
+    MANIFEST_DECODE_FAILED, DATA_DECODE_FAILED, SETTINGS_DECODE_FAILED, UNSUPPORTED_FORMAT,
+    PACKAGE_VALIDATION_FAILED, FINGERPRINT_MISMATCH, NOT_EMPTY, INCOMPATIBLE_PROGRAM, PREVIEW_FAILED,
+    DATABASE_IMPORT_FAILED, IO_FAILURE, UNEXPECTED_INTERNAL
+}
+
+class BackupException(
+    val failure: BackupFailure,
+    detail: String = failure.name,
+    cause: Throwable? = null
+) : Exception(detail, cause)
+
 class BackupRepository(private val context: Context, private val database: EduFlowDatabase = EduFlowDatabase.getInstance(context)) {
     private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
     suspend fun snapshot(): PortableBackup = database.withTransaction { snapshotInTransaction() }
@@ -28,7 +43,15 @@ class BackupRepository(private val context: Context, private val database: EduFl
         val academicYear = AcademicYearSettingsRepository(context).snapshot()
         val d = BackupData(
             database.subjectDao().getAll().map { SubjectDto(it.id,it.name,it.shortName,it.defaultTeacher,it.defaultRoom,it.color) }, database.scheduleTemplateDao().getAll().map { TemplateDto(it.id,it.name) }, database.cycleDao().getConfiguration()?.let { CycleConfigDto(it.id,it.anchorMonday.toString(),it.anchorTemplateId) }, database.cycleDao().getEntries().map { CycleEntryDto(it.id,it.position,it.templateId) }, database.scheduleSlotDao().getAll().map { SlotDto(it.id,it.scheduleTemplateId,it.weekday,it.lessonIndex,it.startTime.toString(),it.endTime.toString(),it.subjectId,it.teacherOverride,it.roomOverride,it.groupInfo,it.logicalBlockId) }, database.recurringPrivateLessonDao().getAll().map { source -> PrivateDto(source.id,source.subjectId,source.weekday,source.startTime.toString(),source.endTime.toString(),source.startDate.toString(),source.endDate?.toString(),source.intervalWeeks,source.teacherOverride,source.roomOverride,source.enabled,source.privateLessonName,source.privateLocationKind.name, weekdays=database.recurringPrivateLessonWeekdayDao().getForSource(source.id)) }, database.lessonInstanceDao().getAll().map { LessonDto(it.id,it.actualDate.toString(),it.actualStartTime.toString(),it.actualEndTime.toString(),it.subjectId,it.sourceScheduleSlotId,it.sourcePrivateLessonId,it.kind.name,it.cancellationState.name,it.actualTeacher,it.actualRoom,it.topic,it.notes,it.privateLessonName,it.privateLocationKind.name) }, database.dayExceptionDao().getAll().map { ExceptionDto(it.date.toString(),it.type.name,it.title,it.reason,it.note) }, database.timetableEventDao().getAll().map { EventDto(it.id,it.date.toString(),it.title,it.description,it.startTime?.toString(),it.endTime?.toString(),it.isAllDay) }, database.taskDao().getAll().map { TaskDto(it.id,it.title,it.description,it.subjectId,it.originatingLessonInstanceId,it.dueLessonInstanceId,it.type.name,it.priority.name,it.status.name,it.dueAt?.toString(),it.completedAt?.toString(),it.createdAt.toString(),it.intendedDueLessonInstanceId) }, database.taskChecklistDao().getAll().map { ChecklistDto(it.id,it.taskId,it.text,it.isCompleted,it.position) }, database.taskReminderDao().getAll().map { ReminderDto(it.id,it.taskId,it.kind.name,it.customTriggerAt?.toString(),it.enabled,it.createdAt.toString()) })
-        return PortableBackup(BackupManifest(createdAt = LocalDateTime.now().toString()), d, BackupSettings(settings.taskRemindersEnabled,settings.dailySummaryEnabled,settings.summaryHour,settings.summaryMinute,academicYear.startDate.toString(),academicYear.endDate.toString()))
+        return PortableBackup(
+            BackupManifest(
+                createdAt = LocalDateTime.now().toString(),
+                roomVersion = EduFlowDatabase.SCHEMA_VERSION,
+                appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+            ),
+            d,
+            BackupSettings(settings.taskRemindersEnabled,settings.dailySummaryEnabled,settings.summaryHour,settings.summaryMinute,academicYear.startDate.toString(),academicYear.endDate.toString())
+        )
     }
     suspend fun write(output: OutputStream, type: PackageType = PackageType.FULL_ARCHIVE) = withContext(Dispatchers.IO) {
         val backup = BackupPackageLogic.scoped(snapshot(), type)
@@ -40,39 +63,58 @@ class BackupRepository(private val context: Context, private val database: EduFl
         }
     }
     fun read(input: InputStream): PortableBackup {
+        val files = mutableMapOf<String,String>()
         try {
-            val files = mutableMapOf<String,String>()
             var total = 0L
             ZipInputStream(input.buffered()).use { zip ->
                 while (true) {
                     val item = zip.nextEntry ?: break
-                    require(item.name in setOf("manifest.json", "data.json", "settings.json") && item.name !in files && !item.isDirectory)
+                    if (item.isDirectory) throw BackupException(BackupFailure.ZIP_ENTRY_INVALID, "Directory ZIP entry: ${item.name}")
+                    if (item.name !in REQUIRED_ARCHIVE_ENTRIES) throw BackupException(BackupFailure.UNEXPECTED_ENTRY, "Unexpected ZIP entry: ${item.name}")
+                    if (item.name in files) throw BackupException(BackupFailure.DUPLICATE_ENTRY, "Duplicate ZIP entry: ${item.name}")
                     val bytes = java.io.ByteArrayOutputStream()
                     val buffer = ByteArray(8192)
                     while (true) {
                         val count = zip.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(total <= 32 * 1024 * 1024)
+                        if (total > MAX_ARCHIVE_BYTES) throw BackupException(BackupFailure.ZIP_ENTRY_INVALID, "Archive exceeds $MAX_ARCHIVE_BYTES bytes")
                         bytes.write(buffer, 0, count)
                     }
                     files[item.name] = bytes.toString("UTF-8")
                 }
             }
-            val manifest = json.decodeFromString(BackupManifest.serializer(),files["manifest.json"] ?: error("manifest"))
-            if (manifest.backupFormatVersion > 2) throw BackupException("NEWER")
-            val backup = PortableBackup(manifest,
-                json.decodeFromString(BackupData.serializer(),files["data.json"] ?: error("data")),
-                json.decodeFromString(BackupSettings.serializer(),files["settings.json"] ?: error("settings")))
+        } catch (e: BackupException) { throw e
+        } catch (e: java.util.zip.ZipException) { throw BackupException(BackupFailure.ZIP_OPEN_FAILED, "ZIP cannot be opened", e)
+        } catch (e: java.io.IOException) { throw BackupException(BackupFailure.IO_FAILURE, "Archive read failed", e)
+        } catch (e: Exception) { throw BackupException(BackupFailure.UNEXPECTED_INTERNAL, "Unexpected ZIP read failure", e) }
+
+        val manifest = decode(BackupFailure.MANIFEST_DECODE_FAILED, "manifest.json") { json.decodeFromString(BackupManifest.serializer(), required(files, "manifest.json")) }
+        if (manifest.backupFormatVersion > 2) throw BackupException(BackupFailure.UNSUPPORTED_FORMAT, "backupFormatVersion=${manifest.backupFormatVersion}")
+        val backup = PortableBackup(manifest,
+            decode(BackupFailure.DATA_DECODE_FAILED, "data.json") { json.decodeFromString(BackupData.serializer(), required(files, "data.json")) },
+            decode(BackupFailure.SETTINGS_DECODE_FAILED, "settings.json") { json.decodeFromString(BackupSettings.serializer(), required(files, "settings.json")) })
+        try {
             BackupPackageLogic.validate(backup)
-            return backup
-        } catch (e: BackupException) { throw e } catch (_: Exception) { throw BackupException("INVALID") }
+        } catch (e: BackupException) { throw e
+        } catch (e: RuntimeException) { throw BackupException(BackupFailure.PACKAGE_VALIDATION_FAILED, "Portable package validation failed", e) }
+        return backup
     }
 
+    /** Opens a user-selected document while preserving provider failures for diagnostics. */
+    fun read(uri: Uri): PortableBackup = try {
+        context.contentResolver.openInputStream(uri)?.use(::read)
+            ?: throw BackupException(BackupFailure.IO_FAILURE, "Document provider returned no input stream")
+    } catch (e: BackupException) { throw e
+    } catch (e: Exception) { throw BackupException(BackupFailure.IO_FAILURE, "Document provider could not open archive", e) }
+
     suspend fun preview(backup: PortableBackup) = withContext(Dispatchers.IO) {
-        val current = snapshot()
-        BackupPackageLogic.validate(backup, current)
-        ensureImportAllowed(backup, current)
+        try {
+            val current = snapshot()
+            BackupPackageLogic.validate(backup, current)
+            ensureImportAllowed(backup, current)
+        } catch (e: BackupException) { throw e
+        } catch (e: Exception) { throw BackupException(BackupFailure.PREVIEW_FAILED, "Import preview failed", e) }
     }
 
     private fun ensureImportAllowed(backup: PortableBackup, current: PortableBackup) {
@@ -81,13 +123,22 @@ class BackupRepository(private val context: Context, private val database: EduFl
             if (d.subjects.isNotEmpty() || d.templates.isNotEmpty() || d.slots.isNotEmpty() || d.cycleConfig != null ||
                 d.cycleEntries.isNotEmpty() || d.lessons.isNotEmpty() || d.tasks.isNotEmpty() || d.checklist.isNotEmpty() ||
                 d.reminders.isNotEmpty() || d.privateLessons.isNotEmpty() || d.exceptions.isNotEmpty() || d.events.isNotEmpty()) {
-                throw BackupException("NOT_EMPTY")
+                throw BackupException(BackupFailure.NOT_EMPTY, "SCHOOL_PROGRAM target is not empty")
             }
         }
     }
 
-    suspend fun restore(backup: PortableBackup) = withContext(Dispatchers.IO) { AppDataSession.runtimeMutex.withLock {
-        val scheduler = TaskReminderScheduler(context,database)
+    suspend fun restore(backup: PortableBackup) = withContext(Dispatchers.IO) {
+        try {
+            AppDataSession.runtimeMutex.withLock {
+                restoreLocked(backup)
+            }
+        } catch (e: BackupException) { throw e
+        } catch (e: Exception) { throw BackupException(BackupFailure.DATABASE_IMPORT_FAILED, "Transactional import failed", e) }
+    }
+
+    private suspend fun restoreLocked(backup: PortableBackup) {
+        val scheduler = TaskReminderScheduler(context, database)
         // Revalidate compatibility inside the write transaction, including after an open preview.
         database.withTransaction {
             val current = snapshotInTransaction()
@@ -121,7 +172,7 @@ class BackupRepository(private val context: Context, private val database: EduFl
         val settings = NotificationSettingsRepository(context).snapshot()
         if (settings.dailySummaryEnabled) scheduler.scheduleDailySummary(settings.summaryHour,settings.summaryMinute)
         EduFlowWidgetUpdater.update(context)
-    } }
+    }
 
     private suspend fun clearStudy() {
         database.taskReminderDao().clear()
@@ -169,4 +220,18 @@ class BackupRepository(private val context: Context, private val database: EduFl
         d.reminders.forEach { database.taskReminderDao().upsert(TaskReminder(it.id,it.taskId,TaskReminderKind.valueOf(it.kind),it.customAt?.let(LocalDateTime::parse),it.enabled,LocalDateTime.parse(it.createdAt))) }
     }
     private fun entry(zip: ZipOutputStream, name: String, value: String) { zip.putNextEntry(ZipEntry(name)); zip.write(value.toByteArray(Charsets.UTF_8)); zip.closeEntry() }
+
+    private fun required(files: Map<String, String>, name: String): String =
+        files[name] ?: throw BackupException(BackupFailure.REQUIRED_ENTRY_MISSING, "Required ZIP entry missing: $name")
+
+    private fun <T> decode(failure: BackupFailure, entry: String, block: () -> T): T = try {
+        block()
+    } catch (e: BackupException) { throw e
+    } catch (e: SerializationException) { throw BackupException(failure, "$entry cannot be decoded", e)
+    } catch (e: IllegalArgumentException) { throw BackupException(failure, "$entry is malformed", e) }
+
+    private companion object {
+        val REQUIRED_ARCHIVE_ENTRIES = setOf("manifest.json", "data.json", "settings.json")
+        const val MAX_ARCHIVE_BYTES = 32 * 1024 * 1024L
+    }
 }
